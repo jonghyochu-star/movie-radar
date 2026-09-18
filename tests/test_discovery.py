@@ -14,7 +14,8 @@ CID='UC'+'r'*22; LARGE='UC'+'s'*22
 VID='DemoVideo01';ALT='DemoVideo02';REF='bTL6azhffzA'
 
 def make_video(vid,cid=CID,seconds='PT1M20S'):
-    return {'id':vid,'snippet':{'title':'A father gives her a second chance #shorts','description':'Movie scene: a fictional test, not a real work.','channelId':cid,'channelTitle':'Synthetic fixture','categoryId':'1','defaultAudioLanguage':'en','liveBroadcastContent':'none','publishedAt':'2026-09-01T00:00:00Z'},'contentDetails':{'duration':seconds},'statistics':{'viewCount':'750000'},'status':{'privacyStatus':'public'}}
+    title='A father gives her a second chance after a difficult day #shorts' if vid==VID else 'A teacher protects a struggling student and gives him hope #shorts'
+    return {'id':vid,'snippet':{'title':title,'description':'Movie scene: a fictional test, not a real work.','channelId':cid,'channelTitle':'Synthetic fixture','categoryId':'1','defaultAudioLanguage':'en','liveBroadcastContent':'none','publishedAt':'2026-09-01T00:00:00Z'},'contentDetails':{'duration':seconds},'statistics':{'viewCount':'750000'},'status':{'privacyStatus':'public'}}
 
 class Fake:
     def __init__(self):self.calls=[]
@@ -147,7 +148,20 @@ class DiscoveryTests(unittest.TestCase):
         for n in [1,2,3]:
             c['queries_per_run']=n;out=select_profiles(c,0);self.assertEqual(len(out),n);self.assertIn('open',[p['lane'] for p in out])
     def test_snapshot_metadata_has_new_version(self):
-        out=m.collect(Fake(),self.config());self.assertEqual(out['collectorVersion'],'1.4')
+        out=m.collect(Fake(),self.config());self.assertEqual(out['collectorVersion'],'1.4.1')
         self.assertEqual(out['collectionSummary']['kept'],len(out['videos']))
+
+    def test_english_focus_source_channel_respects_active_run_languages(self):
+        class SpanishSource(Fake):
+            def get(self,e,**p):
+                data=super().get(e,**p)
+                if e=='videos' and p.get('part')!='snippet':
+                    for x in data['items']:
+                        if x['id']==ALT:
+                            x['snippet']['defaultAudioLanguage']='es';x['snippet']['title']='Una escena emotiva de una familia que se reconcilia #shorts'
+                return data
+        # rotation 0 uses en + ja as the non-English slot, so Spanish source uploads do not leak through.
+        out=m.collect(SpanishSource(),self.config(),rotation=0,collection_preset='english_focus')
+        self.assertNotIn(ALT,[v['id'] for v in out['videos']])
 
 if __name__=='__main__':unittest.main()

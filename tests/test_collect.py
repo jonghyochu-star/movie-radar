@@ -20,7 +20,7 @@ class FakeAPI:
         if endpoint=='videos':
             items=[]
             for i,vid in enumerate([GOOD,LONG,PRIVATE,HIDDEN]):
-                items.append({'id':vid,'snippet':{'title':'Original <script> title','channelTitle':'Source','channelId':CID2 if vid==HIDDEN else CID,'liveBroadcastContent':'none','publishedAt':'2026-01-01T00:00:00Z','thumbnails':{'high':{'url':'https://i.ytimg.com/vi/'+vid+'/hqdefault.jpg'}}},'statistics':{'viewCount':str(100000+i)},'contentDetails':{'duration':'PT5M' if vid==LONG else 'PT1M20S'},'status':{'privacyStatus':'private' if vid==PRIVATE else 'public'}})
+                items.append({'id':vid,'snippet':{'title':'Original <script> title '+vid,'channelTitle':'Source','channelId':CID2 if vid==HIDDEN else CID,'liveBroadcastContent':'none','publishedAt':'2026-01-01T00:00:00Z','thumbnails':{'high':{'url':'https://i.ytimg.com/vi/'+vid+'/hqdefault.jpg'}}},'statistics':{'viewCount':str(100000+i)},'contentDetails':{'duration':'PT5M' if vid==LONG else 'PT1M20S'},'status':{'privacyStatus':'private' if vid==PRIVATE else 'public'}})
             return {'items':items}
         if endpoint=='channels':return {'items':[{'id':CID,'statistics':{'subscriberCount':'2000','hiddenSubscriberCount':False}},{'id':CID2,'statistics':{'hiddenSubscriberCount':True}}]}
         raise AssertionError(endpoint)
@@ -95,7 +95,7 @@ class TestCollect(unittest.TestCase):
                 data=super().get(endpoint,**params)
                 if endpoint=='videos':
                     for v in data['items']:
-                        v['snippet']['title']='한국어 자막 외국 영화 테스트'
+                        v['snippet']['title']='한국어 자막 외국 영화 테스트 '+v['id']
                         v['snippet']['defaultAudioLanguage']='ko'
                 return data
         result=m.collect(KoreanText(),self.config())
@@ -123,11 +123,11 @@ class TestCollect(unittest.TestCase):
                 data=super().get(endpoint,**params)
                 if endpoint=='videos':
                     for i,v in enumerate(data['items']):
-                        v['snippet'].update(title='Yodha movie scene#bhik mangne ka tarika#explore#viral',defaultLanguage='en')
+                        v['snippet'].update(title='Yodha movie scene bhik mangne ka tarika '+v['id']+' #explore #viral',defaultLanguage='en')
                         if v['id']==HIDDEN:v['snippet']['defaultAudioLanguage']='hi'
                 return data
         out=m.collect(Mixed(),self.config())
-        self.assertEqual(out['collectorVersion'],'1.4')
+        self.assertEqual(out['collectorVersion'],'1.4.1')
         missing=next(v for v in out['videos'] if v['id']==GOOD)
         audio=next(v for v in out['videos'] if v['id']==HIDDEN)
         self.assertEqual((missing['language'],missing['declaredLanguage'],missing['languageSource']),('unknown','en','unknown'))
@@ -153,4 +153,19 @@ class TestCollect(unittest.TestCase):
     def test_prior_pages_url_is_bounded(self):
         self.assertEqual(m.prior_pages_url('owner/repo'),'https://owner.github.io/repo/data/videos.json')
         self.assertIsNone(m.prior_pages_url('bad/../../repo'))
+    def test_title_fingerprint_is_irreversible_and_bounded(self):
+        fp=m.title_token_hashes('Escena de película: una segunda oportunidad #shorts viral')
+        self.assertTrue(fp);self.assertTrue(all(len(x)==12 for x in fp))
+        self.assertNotIn('segunda',fp)
+    def test_near_duplicate_requires_strong_overlap(self):
+        a=m.title_token_hashes('Una familia recibe una segunda oportunidad inesperada')
+        b=m.title_token_hashes('Una familia recibe una segunda oportunidad inesperada #shorts')
+        c=m.title_token_hashes('Un maestro ayuda a un alumno con su futuro')
+        self.assertTrue(m.near_duplicate(a,[b]));self.assertFalse(m.near_duplicate(a,[c]))
+    def test_cache_history_roundtrip(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'history.json';fp=m.title_token_hashes('A father gives her a second chance tonight')
+            m.save_cache_history(p,[GOOD],[fp]);ids,fps=m.load_cache_history(p)
+            self.assertIn(GOOD,ids);self.assertEqual(fps,[fp])
+
 if __name__=='__main__':unittest.main()
