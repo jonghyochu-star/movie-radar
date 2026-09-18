@@ -1,0 +1,27 @@
+{
+  "queries": [
+    "movie scene shorts",
+    "film scene shorts",
+    "tv series scene shorts",
+    "independent film clip",
+    "movie father daughter scene",
+    "movie act of kindness scene",
+    "movie family scene",
+    "movie emotional ending",
+    "movie mother son scene",
+    "tv drama kindness clip",
+    "movie friendship scene",
+    "movie reunion scene"
+  ],
+  "queries_per_run": 4,
+  "recent_days": 30,
+  "archive_days": 0,
+  "results_per_search": 50,
+  "max_videos": 400,
+  "min_seconds": 10,
+  "max_seconds": 180,
+  "relevance_language": "en",
+  "region_code": "US",
+  "channel_ids": [],
+  "video_ids": []
+}

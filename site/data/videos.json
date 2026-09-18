@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "mode": "demo",
+  "generatedAt": null,
+  "warnings": [],
+  "videos": [
+    {
+      "id": "demo-1",
+      "title": "[샘플] 작은 친절이 위로로 돌아오는 장면",
+      "channelTitle": "가상 채널 1",
+      "channelId": "demo-channel-1",
+      "views": 1800000,
+      "subscribers": 8200,
+      "publishedAt": "2026-09-12T00:00:00Z",
+      "fetchedAt": "2026-09-18T00:00:00Z",
+      "durationSeconds": 62,
+      "thumbnail": "",
+      "source": "실제 영상이 아닌 기능 확인용 데이터"
+    },
+    {
+      "id": "demo-2",
+      "title": "[샘플] 아버지가 딸을 기다린 이유",
+      "channelTitle": "가상 채널 2",
+      "channelId": "demo-channel-2",
+      "views": 2600000,
+      "subscribers": 23000,
+      "publishedAt": "2026-09-12T00:00:00Z",
+      "fetchedAt": "2026-09-18T00:00:00Z",
+      "durationSeconds": 69,
+      "thumbnail": "",
+      "source": "실제 영상이 아닌 기능 확인용 데이터"
+    },
+    {
+      "id": "demo-3",
+      "title": "[샘플] 편견을 내려놓은 두 사람",
+      "channelTitle": "가상 채널 3",
+      "channelId": "demo-channel-3",
+      "views": 930000,
+      "subscribers": 4500,
+      "publishedAt": "2026-09-12T00:00:00Z",
+      "fetchedAt": "2026-09-18T00:00:00Z",
+      "durationSeconds": 76,
+      "thumbnail": "",
+      "source": "실제 영상이 아닌 기능 확인용 데이터"
+    },
+    {
+      "id": "demo-4",
+      "title": "[샘플] 엄마의 낡은 가방에 담긴 마음",
+      "channelTitle": "가상 채널 4",
+      "channelId": "demo-channel-4",
+      "views": 1250000,
+      "subscribers": 18000,
+      "publishedAt": "2026-09-12T00:00:00Z",
+      "fetchedAt": "2026-09-18T00:00:00Z",
+      "durationSeconds": 83,
+      "thumbnail": "",
+      "source": "실제 영상이 아닌 기능 확인용 데이터"
+    },
+    {
+      "id": "demo-5",
+      "title": "[샘플] 낯선 사람의 조용한 배려",
+      "channelTitle": "가상 채널 5",
+      "channelId": "demo-channel-5",
+      "views": 730000,
+      "subscribers": 3900,
+      "publishedAt": "2026-09-12T00:00:00Z",
+      "fetchedAt": "2026-09-18T00:00:00Z",
+      "durationSeconds": 90,
+      "thumbnail": "",
+      "source": "실제 영상이 아닌 기능 확인용 데이터"
+    },
+    {
+      "id": "demo-6",
+      "title": "[샘플] 늦게 전한 한마디, 고맙습니다",
+      "channelTitle": "가상 채널 6",
+      "channelId": "demo-channel-6",
+      "views": 2100000,
+      "subscribers": 32000,
+      "publishedAt": "2026-09-12T00:00:00Z",
+      "fetchedAt": "2026-09-18T00:00:00Z",
+      "durationSeconds": 97,
+      "thumbnail": "",
+      "source": "실제 영상이 아닌 기능 확인용 데이터"
+    }
+  ]
+}

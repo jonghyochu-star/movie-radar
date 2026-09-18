@@ -1,0 +1,14 @@
+const test=require('node:test');const assert=require('node:assert/strict');const C=require('../site/core.js');
+const v={id:'AbCdEfGhI01',title:'test',views:1000,subscribers:100,fetchedAt:new Date().toISOString()};
+test('like then candidate keeps like',()=>{let s=C.apply(C.blank(),v,'like');s=C.apply(s,v,'candidate');assert.equal(s.records[v.id].rating,'like');assert.equal(s.records[v.id].stage,'candidate');});
+test('candidate removal not dislike',()=>{let s=C.apply(C.apply(C.blank(),v,'like'),v,'candidate');s=C.apply(s,v,'uncandidate');assert.equal(s.records[v.id].rating,'like');assert.equal(s.records[v.id].stage,null);});
+test('done from discovery neutral rating',()=>{const s=C.apply(C.blank(),v,'done');assert.equal(s.records[v.id].rating,null);assert.equal(s.records[v.id].stage,'done');});
+test('unrate keeps production stage',()=>{let s=C.apply(C.apply(C.blank(),v,'like'),v,'candidate');s=C.apply(s,v,'unrate');assert.equal(s.records[v.id].rating,null);assert.equal(s.records[v.id].stage,'candidate');});
+test('state input remains immutable',()=>{const s=C.blank();C.apply(s,v,'like');assert.equal(Object.keys(s.records).length,0);});
+test('ratio unknown and zero',()=>{assert.equal(C.ratio(v),10);assert.equal(C.ratio({...v,subscribers:0}),null);assert.equal(C.ratio({...v,subscribers:null}),null);});
+test('backup removes API metadata',()=>{const b=C.exportData(C.apply(C.blank(),v,'like'));assert.equal(b.records[v.id].cache,undefined);assert.equal(b.records[v.id].rating,'like');});
+test('expired metadata removed, notes retained',()=>{let s=C.apply(C.blank(),{...v,fetchedAt:'2020-01-01T00:00:00Z'},'like');s.records[v.id].memo='keep';s=C.normalize(s);assert.equal(s.records[v.id].cache,null);assert.equal(s.records[v.id].memo,'keep');});
+test('bad schema rejected',()=>assert.throws(()=>C.normalize({schema:9,records:{}})));
+test('merge newer wins',()=>{let a=C.apply(C.blank(),v,'like','2026-09-01T00:00:00Z'),b=C.apply(C.blank(),v,'dislike','2026-09-02T00:00:00Z');assert.equal(C.merge(a,b).records[v.id].rating,'dislike');});
+test('YouTube links parsed',()=>{assert.equal(C.parseLink('https://youtu.be/AbCdEfGhI01?t=1'),v.id);assert.equal(C.parseLink('https://www.youtube.com/shorts/AbCdEfGhI01'),v.id);assert.equal(C.parseLink('https://www.youtube.com/watch?v=AbCdEfGhI01'),v.id);});
+test('unsafe links rejected',()=>{for(const x of ['javascript:alert(1)','https://youtube.com.evil.com/watch?v=AbCdEfGhI01','http://youtu.be/AbCdEfGhI01'])assert.throws(()=>C.parseLink(x));});
