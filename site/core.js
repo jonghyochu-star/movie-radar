@@ -9,7 +9,7 @@
   const validId = id => typeof id === 'string' && /^(?:[A-Za-z0-9_-]{11}|demo-[1-9][0-9]*)$/.test(id);
   const blank = () => ({schema:1, records:Object.create(null)});
   function record(id) {
-    return {id,rating:null,stage:null,memo:'',label:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),cache:null};
+    return {id,rating:null,stage:null,origin:'unknown',memo:'',label:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),cache:null};
   }
   function normalize(raw, now=Date.now()) {
     if (!raw || raw.schema !== 1 || typeof raw.records !== 'object' || !raw.records || Array.isArray(raw.records)) throw Error('Movie Radar 백업 형식이 아닙니다.');
@@ -20,6 +20,7 @@
       const x=record(id);
       x.rating=['like','dislike'].includes(r.rating)?r.rating:null;
       x.stage=['candidate','done'].includes(r.stage)?r.stage:null;
+      x.origin=originOf(r);
       x.memo=String(r.memo||'').slice(0,5000);x.label=String(r.label||'').slice(0,150);
       for(const k of ['createdAt','updatedAt']) if(typeof r[k]==='string' && Number.isFinite(Date.parse(r[k]))) x[k]=r[k];
       const t=Date.parse(r.cache?.fetchedAt);
@@ -34,16 +35,30 @@
     switch(action) {
       case 'like': r.rating='like'; break;
       case 'dislike': r.rating='dislike'; break;
-      case 'candidate': r.stage='candidate'; break;
+      case 'candidate':
+        if (!isSample(video) && originOf(r) !== 'non_korean') throw Error('원작이 한국 외 작품인지 먼저 확인해 주세요.');
+        r.stage='candidate'; break;
       case 'uncandidate': r.stage=null; break;
       case 'done': r.stage='done'; break;
-      case 'reopen': r.stage='candidate'; break;
+      case 'reopen':
+        if (!isSample(video) && originOf(r) !== 'non_korean') throw Error('원작이 한국 외 작품인지 먼저 확인해 주세요.');
+        r.stage='candidate'; break;
       case 'unrate': r.rating=null; break;
+      case 'origin_foreign': r.origin='non_korean'; break;
+      case 'origin_korean': r.origin='korean'; break;
+      case 'origin_reset': r.origin='unknown'; break;
       default: throw Error('지원하지 않는 동작입니다.');
     }
     if(video.fetchedAt)r.cache=video;
     r.updatedAt=now;next.records[video.id]=r;return next;
   }
+  // Origin is an explicit local user decision, never inferred from video language.
+  function originOf(r) {
+    return r && ['non_korean','korean'].includes(r.origin) ? r.origin : 'unknown';
+  }
+  function isSample(v) { return typeof v?.id==='string' && /^demo-/.test(v.id); }
+  function ready(v,r) { return isSample(v) || originOf(r)==='non_korean'; }
+  function needsReview(v,r={}) { return !isSample(v) && originOf(r)==='unknown' && r.rating!=='dislike' && r.stage!=='done'; }
   function ratio(v) {
     const sub=v.subscribers, views=v.views;
     return typeof sub==='number' && sub>0 && typeof views==='number'?views/sub:null;
@@ -70,5 +85,5 @@
     if(!id || !/^[\w-]{11}$/.test(id))throw Error('영상 ID를 찾지 못했습니다. 채널이 아닌 영상 주소를 입력해 주세요.');
     return id;
   }
-  return {MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink};
+  return {MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview};
 });

@@ -1,17 +1,69 @@
 {
   "queries": [
-    "movie scene shorts",
-    "film scene shorts",
-    "tv series scene shorts",
-    "independent film clip",
-    "movie father daughter scene",
-    "movie act of kindness scene",
-    "movie family scene",
-    "movie emotional ending",
-    "movie mother son scene",
-    "tv drama kindness clip",
-    "movie friendship scene",
-    "movie reunion scene"
+    {
+      "q": "movie scene shorts",
+      "language": "en"
+    },
+    {
+      "q": "escena película shorts",
+      "language": "es"
+    },
+    {
+      "q": "cena de filme shorts",
+      "language": "pt"
+    },
+    {
+      "q": "映画 ワンシーン shorts",
+      "language": "ja"
+    },
+    {
+      "q": "scène de film shorts",
+      "language": "fr"
+    },
+    {
+      "q": "Filmszene shorts",
+      "language": "de"
+    },
+    {
+      "q": "फिल्म का दृश्य shorts",
+      "language": "hi"
+    },
+    {
+      "q": "adegan film shorts",
+      "language": "id"
+    },
+    {
+      "q": "сцена из фильма shorts",
+      "language": "ru"
+    },
+    {
+      "q": "ฉากหนัง shorts",
+      "language": "th"
+    },
+    {
+      "q": "مشهد من فيلم shorts",
+      "language": "ar"
+    },
+    {
+      "q": "film sahnesi shorts",
+      "language": "tr"
+    },
+    {
+      "q": "电影片段 shorts",
+      "language": "zh-Hans"
+    },
+    {
+      "q": "電影片段 shorts",
+      "language": "zh-Hant"
+    },
+    {
+      "q": "scena film shorts",
+      "language": "it"
+    },
+    {
+      "q": "cảnh phim shorts",
+      "language": "vi"
+    }
   ],
   "queries_per_run": 4,
   "recent_days": 30,
@@ -20,8 +72,8 @@
   "max_videos": 400,
   "min_seconds": 10,
   "max_seconds": 180,
-  "relevance_language": "en",
-  "region_code": "US",
+  "relevance_language": "",
+  "region_code": "",
   "channel_ids": [],
   "video_ids": []
 }

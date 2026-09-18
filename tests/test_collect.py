@@ -68,4 +68,46 @@ class TestCollect(unittest.TestCase):
         class Empty:
             def get(self,*a,**kw):return {'items':[]}
         r=m.collect(Empty(),self.config());self.assertEqual(r['videos'],[]);self.assertTrue(r['warnings'])
+    def test_all_profiles_rotate_in_four_runs(self):
+        c=self.config();seen=set()
+        for rotation in range(4):
+            api=FakeAPI();result=m.collect(api,c,rotation)
+            seen.update(result['searchLanguages'])
+            searches=[params for name,params in api.calls if name=='search']
+            self.assertEqual(len(searches),8)
+            self.assertTrue(all('regionCode' not in p for p in searches))
+        self.assertEqual(len(seen),16)
+        self.assertNotIn('ko',seen)
+    def test_every_output_is_unverified_not_guessed(self):
+        result=m.collect(FakeAPI(),self.config())
+        self.assertEqual(result['reviewPolicy'],'manual-original-country-v1')
+        self.assertTrue(all(v['originalStatus']=='unverified' for v in result['videos']))
+    def test_korean_text_does_not_prove_korean_original(self):
+        class KoreanText(FakeAPI):
+            def get(self,endpoint,**params):
+                data=super().get(endpoint,**params)
+                if endpoint=='videos':
+                    for v in data['items']:
+                        v['snippet']['title']='한국어 자막 외국 영화 테스트'
+                        v['snippet']['defaultAudioLanguage']='ko'
+                return data
+        result=m.collect(KoreanText(),self.config())
+        self.assertEqual(len(result['videos']),2)
+        self.assertTrue(all(v['originalStatus']=='unverified' for v in result['videos']))
+    def test_legacy_string_queries_still_work(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'config.json';p.write_text(json.dumps({'queries':['film scene'],'relevance_language':'en','region_code':'US'}))
+            c=m.load_config(p);api=FakeAPI();m.collect(api,c)
+            search=next(params for name,params in api.calls if name=='search')
+            self.assertEqual(search['q'],'film scene');self.assertEqual(search['regionCode'],'US')
+    def test_invalid_language_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'config.json';p.write_text(json.dumps({'queries':[{'q':'film','language':'en&key=oops'}]}))
+            with self.assertRaises(m.CollectionError):m.load_config(p)
+    def test_no_language_preference_supported(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'config.json';p.write_text(json.dumps({'queries':[{'q':'film','language':''}]}))
+            c=m.load_config(p);api=FakeAPI();m.collect(api,c)
+            search=next(params for name,params in api.calls if name=='search')
+            self.assertNotIn('relevanceLanguage',search);self.assertNotIn('regionCode',search)
 if __name__=='__main__':unittest.main()

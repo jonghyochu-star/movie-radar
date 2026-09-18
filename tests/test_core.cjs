@@ -1,9 +1,9 @@
 const test=require('node:test');const assert=require('node:assert/strict');const C=require('../site/core.js');
 const v={id:'AbCdEfGhI01',title:'test',views:1000,subscribers:100,fetchedAt:new Date().toISOString()};
-test('like then candidate keeps like',()=>{let s=C.apply(C.blank(),v,'like');s=C.apply(s,v,'candidate');assert.equal(s.records[v.id].rating,'like');assert.equal(s.records[v.id].stage,'candidate');});
-test('candidate removal not dislike',()=>{let s=C.apply(C.apply(C.blank(),v,'like'),v,'candidate');s=C.apply(s,v,'uncandidate');assert.equal(s.records[v.id].rating,'like');assert.equal(s.records[v.id].stage,null);});
+test('like then candidate keeps like',()=>{let s=C.apply(C.apply(C.blank(),v,'origin_foreign'),v,'like');s=C.apply(s,v,'candidate');assert.equal(s.records[v.id].rating,'like');assert.equal(s.records[v.id].stage,'candidate');});
+test('candidate removal not dislike',()=>{let s=C.apply(C.apply(C.apply(C.blank(),v,'origin_foreign'),v,'like'),v,'candidate');s=C.apply(s,v,'uncandidate');assert.equal(s.records[v.id].rating,'like');assert.equal(s.records[v.id].stage,null);});
 test('done from discovery neutral rating',()=>{const s=C.apply(C.blank(),v,'done');assert.equal(s.records[v.id].rating,null);assert.equal(s.records[v.id].stage,'done');});
-test('unrate keeps production stage',()=>{let s=C.apply(C.apply(C.blank(),v,'like'),v,'candidate');s=C.apply(s,v,'unrate');assert.equal(s.records[v.id].rating,null);assert.equal(s.records[v.id].stage,'candidate');});
+test('unrate keeps production stage',()=>{let s=C.apply(C.apply(C.apply(C.blank(),v,'origin_foreign'),v,'like'),v,'candidate');s=C.apply(s,v,'unrate');assert.equal(s.records[v.id].rating,null);assert.equal(s.records[v.id].stage,'candidate');});
 test('state input remains immutable',()=>{const s=C.blank();C.apply(s,v,'like');assert.equal(Object.keys(s.records).length,0);});
 test('ratio unknown and zero',()=>{assert.equal(C.ratio(v),10);assert.equal(C.ratio({...v,subscribers:0}),null);assert.equal(C.ratio({...v,subscribers:null}),null);});
 test('backup removes API metadata',()=>{const b=C.exportData(C.apply(C.blank(),v,'like'));assert.equal(b.records[v.id].cache,undefined);assert.equal(b.records[v.id].rating,'like');});
@@ -12,3 +12,13 @@ test('bad schema rejected',()=>assert.throws(()=>C.normalize({schema:9,records:{
 test('merge newer wins',()=>{let a=C.apply(C.blank(),v,'like','2026-09-01T00:00:00Z'),b=C.apply(C.blank(),v,'dislike','2026-09-02T00:00:00Z');assert.equal(C.merge(a,b).records[v.id].rating,'dislike');});
 test('YouTube links parsed',()=>{assert.equal(C.parseLink('https://youtu.be/AbCdEfGhI01?t=1'),v.id);assert.equal(C.parseLink('https://www.youtube.com/shorts/AbCdEfGhI01'),v.id);assert.equal(C.parseLink('https://www.youtube.com/watch?v=AbCdEfGhI01'),v.id);});
 test('unsafe links rejected',()=>{for(const x of ['javascript:alert(1)','https://youtube.com.evil.com/watch?v=AbCdEfGhI01','http://youtu.be/AbCdEfGhI01'])assert.throws(()=>C.parseLink(x));});
+
+test('unknown metadata never determines origin',()=>{assert.equal(C.originOf({}), 'unknown');assert.equal(C.ready({...v,title:'Korean film',country:'US'},{}),false);});
+test('unknown cannot enter production candidates',()=>{assert.throws(()=>C.apply(C.blank(),v,'candidate'),/원작/);});
+test('legacy record migration preserves rating, stage, memo',()=>{const old={schema:1,records:{[v.id]:{id:v.id,rating:'like',stage:'candidate',memo:'keep me'}}};const r=C.normalize(old).records[v.id];assert.equal(r.rating,'like');assert.equal(r.stage,'candidate');assert.equal(r.memo,'keep me');assert.equal(r.origin,'unknown');});
+test('Korean exclusion preserves preference and notes',()=>{let s=C.apply(C.apply(C.apply(C.blank(),v,'origin_foreign'),v,'like'),v,'candidate');s.records[v.id].memo='unchanged';s=C.apply(s,v,'origin_korean');const r=s.records[v.id];assert.equal(r.rating,'like');assert.equal(r.stage,'candidate');assert.equal(r.memo,'unchanged');assert.equal(C.originOf(r),'korean');assert.equal(C.ready(v,r),false);assert.equal(C.needsReview(v,r),false);});
+test('origin reset sends item to unknown review',()=>{let s=C.apply(C.blank(),v,'origin_foreign');s=C.apply(s,v,'origin_reset');assert.equal(C.needsReview(v,s.records[v.id]),true);});
+test('origin review included in metadata-free backup',()=>{const s=C.apply(C.blank(),v,'origin_korean');const backup=C.exportData(s);assert.equal(backup.records[v.id].origin,'korean');assert.equal(backup.records[v.id].cache,undefined);assert.equal(C.normalize(backup).records[v.id].origin,'korean');});
+test('origin decisions for one video do not label other clips',()=>{const s=C.apply(C.blank(),v,'origin_korean');const another={...v,id:'AbCdEfGhI02',title:'same film'};assert.equal(C.originOf(s.records[another.id]),'unknown');});
+test('samples can test candidate behavior without a real country decision',()=>{const demo={id:'demo-1'};const s=C.apply(C.apply(C.blank(),demo,'like'),demo,'candidate');assert.equal(s.records[demo.id].stage,'candidate');});
+test('disliked and done items do not clog pending review',()=>{assert.equal(C.needsReview(v,{rating:'dislike'}),false);assert.equal(C.needsReview(v,{stage:'done'}),false);assert.equal(C.needsReview(v,{rating:'like'}),true);});

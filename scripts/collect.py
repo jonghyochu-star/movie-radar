@@ -64,9 +64,27 @@ def load_config(path):
     if c["min_seconds"]>c["max_seconds"]:
         raise CollectionError("min_seconds는 max_seconds보다 클 수 없습니다.")
     queries = c.get("queries", [])
-    if not isinstance(queries,list) or not all(isinstance(q,str) and 0<len(q)<=150 for q in queries):
-        raise CollectionError("queries에는 짧은 검색어 문자열을 넣으세요.")
-    c["queries"] = list(dict.fromkeys(q.strip() for q in queries if q.strip()))[:50]
+    if not isinstance(queries, list) or len(queries) > 64:
+        raise CollectionError("queries는 최대 64개의 검색어 목록이어야 합니다.")
+    normalized = []
+    for entry in queries:
+        if isinstance(entry, str):
+            q, language = entry.strip(), c.get("relevance_language", "")
+        elif isinstance(entry, dict):
+            q, language = entry.get("q", ""), entry.get("language", "")
+            if not isinstance(q, str):
+                raise CollectionError("검색어 q에는 문자열을 넣으세요.")
+            q = q.strip()
+        else:
+            raise CollectionError("검색어는 문자열 또는 q/language 객체여야 합니다.")
+        if not q or len(q) > 150:
+            raise CollectionError("검색어 q는 비어 있지 않은 150자 이하 문자열이어야 합니다.")
+        if not isinstance(language, str) or (language and not (re.fullmatch(r"[a-z]{2}", language) or language in {"zh-Hans", "zh-Hant"})):
+            raise CollectionError("language는 en, es, ja, zh-Hans 등의 언어 코드 또는 빈 문자열이어야 합니다.")
+        item = {"q": q, "language": language}
+        if item not in normalized:
+            normalized.append(item)
+    c["queries"] = normalized
     for field, pattern, maximum in [("channel_ids", CHANNEL, 5), ("video_ids", ID, 100)]:
         entries = c.get(field, [])
         if not isinstance(entries,list) or len(entries)>maximum or not all(isinstance(x,str) and pattern.fullmatch(x) for x in entries):
@@ -74,10 +92,13 @@ def load_config(path):
         c[field] = list(dict.fromkeys(entries))
     if not (c["queries"] or c["channel_ids"] or c["video_ids"]):
         raise CollectionError("검색어 또는 수집할 영상·채널 ID가 하나 이상 필요합니다.")
-    c["relevance_language"] = c.get("relevance_language", "en")
-    c["region_code"] = c.get("region_code", "US")
-    if not re.fullmatch(r"[a-z]{2}",str(c["relevance_language"])) or not re.fullmatch(r"[A-Z]{2}",str(c["region_code"])):
-        raise CollectionError("언어는 en, 지역은 US와 같은 두 글자 코드여야 합니다.")
+    c["relevance_language"] = c.get("relevance_language", "")
+    c["region_code"] = c.get("region_code", "")
+    region = c["region_code"]
+    if not isinstance(region, str) or (region and not re.fullmatch(r"[A-Z]{2}", region)):
+        raise CollectionError("region_code는 US 같은 국가 코드 또는 빈 문자열이어야 합니다.")
+    # Region is availability, NOT a film's production country. Never use it
+    # or a channel's language/country to infer whether the original film is Korean.
     return c
 
 class YouTube:
@@ -138,12 +159,19 @@ def collect(api, c, rotation=0, now=None):
     count = min(c["queries_per_run"],len(pool))
     selected = [pool[(rotation*count+i)%len(pool)] for i in range(count)] if pool else []
     # Up to 8 search calls per run: recent + all-time for each selected query.
-    # Search preference is not a guarantee of English language / US origin.
-    for query in selected:
+    # Rotate language-specific searches without multiplying the per-run request budget.
+    # An API language preference is not a hard language or original-country filter.
+    query_names = [entry["q"] for entry in selected]
+    languages = list(dict.fromkeys(entry["language"] for entry in selected if entry["language"]))
+    for profile in selected:
+        query = profile["q"]
         for recent in [True, False]:
             params = dict(part="snippet",type="video",q=query,order="viewCount",videoDuration="short",
-                          maxResults=c["results_per_search"],relevanceLanguage=c["relevance_language"],
-                          regionCode=c["region_code"],safeSearch="moderate")
+                          maxResults=c["results_per_search"], safeSearch="moderate")
+            if profile["language"]:
+                params["relevanceLanguage"] = profile["language"]
+            if c["region_code"]:
+                params["regionCode"] = c["region_code"]
             days = c["recent_days"] if recent else c["archive_days"]
             if days: params["publishedAfter"] = timestamp(now-timedelta(days=days))
             scope = f"최근 {days}일" if days else "전체 기간"
@@ -160,7 +188,7 @@ def collect(api, c, rotation=0, now=None):
             for item in uploads.get("items",[]):add(item.get("contentDetails",{}).get("videoId"),"지정한 채널의 최근 업로드")
     for vid in c["video_ids"]:add(vid,"설정 파일에서 지정한 영상")
     if not found:
-        return {"schema":1,"mode":"live","generatedAt":stamp,"warnings":["검색 결과가 없습니다. 설정의 검색어·기간을 확인하세요."],"videos":[],"searchQueries":selected}
+        return {"schema":1,"mode":"live","generatedAt":stamp,"reviewPolicy":"manual-original-country-v1","warnings":["검색 결과가 없습니다. 설정의 검색어·기간을 확인하세요."],"videos":[],"searchQueries":query_names,"searchLanguages":languages}
     raw_videos=[]
     for batch in chunks(found):
         raw_videos.extend(api.get("videos",part="snippet,statistics,contentDetails,status",id=",".join(batch)).get("items",[]))
@@ -187,11 +215,11 @@ def collect(api, c, rotation=0, now=None):
         result.append({"id":vid,"title":s.get("title",""),"channelTitle":s.get("channelTitle",""),"channelId":cid,
                        "views":number(st.get("viewCount")),"subscribers":subscribers.get(cid),
                        "publishedAt":s.get("publishedAt"),"fetchedAt":stamp,"durationSeconds":seconds,
-                       "thumbnail":thumb,"source":" / ".join(found.get(vid,[])[:2])})
+                       "thumbnail":thumb,"originalStatus":"unverified","source":" / ".join(found.get(vid,[])[:2])})
     result.sort(key=lambda x:x["views"] if x["views"] is not None else -1,reverse=True)
     result=result[:c["max_videos"]]
     if not result:warnings.append("길이·공개 조건에 맞는 후보가 없습니다. 검색어를 넓혀 주세요.")
-    return {"schema":1,"mode":"live","generatedAt":stamp,"warnings":warnings,"videos":result,"searchQueries":selected}
+    return {"schema":1,"mode":"live","generatedAt":stamp,"reviewPolicy":"manual-original-country-v1","warnings":warnings,"videos":result,"searchQueries":query_names,"searchLanguages":languages}
 
 def main():
     parser=argparse.ArgumentParser()
@@ -210,6 +238,8 @@ def main():
         api=YouTube(os.environ.get("YOUTUBE_API_KEY", "").strip())
         data=collect(api,c,rotation)
         print(f"LIVE: {len(data['videos'])}개 수집. API 요청 횟수: {json.dumps(api.calls)}")
+        print("검색 언어: " + ", ".join(data.get("searchLanguages", [])))
+        print("원작 제작국은 자동 판정하지 않았습니다. 미확인 영상은 원작 확인 필요 탭에서 검토하세요.")
     encoded=json.dumps(data,ensure_ascii=False,indent=2)
     secret=os.environ.get("YOUTUBE_API_KEY","")
     if secret and secret in encoded:raise CollectionError("보안 검사 실패: 공개 출력에 비밀키가 포함되어 배포를 중단했습니다.")
