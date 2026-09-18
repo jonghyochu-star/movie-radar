@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('collect13',ROOT/'scripts/collect.py')
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
-from discovery import select_profiles,validate_discovery,shorts_hint,diverse_snapshot
+from discovery import select_profiles,validate_discovery,shorts_hint,diverse_snapshot,parse_collection_plan,language_slots
 CID='UC'+'r'*22; LARGE='UC'+'s'*22
 VID='DemoVideo01';ALT='DemoVideo02';REF='bTL6azhffzA'
 
@@ -37,12 +37,27 @@ class DiscoveryTests(unittest.TestCase):
             rows=select_profiles(self.config(),r)
             self.assertEqual(len(rows),4)
             self.assertEqual({x['lane'] for x in rows},{'familiar','expand','work','open'})
-    def test_languages_mixed_not_english_only(self):
-        all_langs=set()
-        for r in range(16):
-            langs=[x['language'] for x in select_profiles(self.config(),r)]
-            self.assertIn('en',langs);self.assertGreaterEqual(len(set(langs)),3);all_langs.update(langs)
-        self.assertEqual(len(all_langs),8)
+    def test_english_focus_is_three_english_one_rotating_other(self):
+        others=set()
+        for r in range(7):
+            langs=[x['language'] for x in select_profiles(self.config(),r,'english_focus','',1)]
+            self.assertEqual(langs.count('en'),3);self.assertEqual(len(langs),4)
+            others.update(x for x in langs if x!='en')
+        self.assertEqual(others,{'ja','es','pt','fr','de','it','zh-Hans'})
+    def test_english_only_is_strict_search_plan(self):
+        for r in range(4):self.assertEqual([x['language'] for x in select_profiles(self.config(),r,'english_only','',1)],['en']*4)
+    def test_balanced_rotates_languages(self):
+        seen=set()
+        for r in range(8):seen.update(language_slots(parse_collection_plan('balanced'),4,r))
+        self.assertEqual(seen,{'en','ja','es','pt','fr','de','it','zh-Hans'})
+    def test_custom_weights_validate(self):
+        plan=parse_collection_plan('custom','en:50,es:30,fr:20');self.assertEqual(set(plan['allowed']),{'en','es','fr'})
+        with self.assertRaises(ValueError):parse_collection_plan('custom','en:70,xx:30')
+    def test_retry_round_changes_lane_emphasis(self):
+        one=[x['lane'] for x in select_profiles(self.config(),0,'english_focus','',1)]
+        two=[x['lane'] for x in select_profiles(self.config(),0,'english_focus','',2)]
+        three=[x['lane'] for x in select_profiles(self.config(),0,'english_focus','',3)]
+        self.assertNotEqual(one,two);self.assertNotEqual(two,three);self.assertIn('open',one);self.assertIn('open',two);self.assertIn('open',three)
     def test_topics_not_frozen_to_nine_examples(self):
         topics={x['label'] for r in range(128) for x in select_profiles(self.config(),r)}
         for term in ['유머 속 따뜻함','노력 끝의 인정','존엄과 인정','용서와 두 번째 기회']:self.assertIn(term,topics)
@@ -132,7 +147,7 @@ class DiscoveryTests(unittest.TestCase):
         for n in [1,2,3]:
             c['queries_per_run']=n;out=select_profiles(c,0);self.assertEqual(len(out),n);self.assertIn('open',[p['lane'] for p in out])
     def test_snapshot_metadata_has_new_version(self):
-        out=m.collect(Fake(),self.config());self.assertEqual(out['collectorVersion'],'1.3')
+        out=m.collect(Fake(),self.config());self.assertEqual(out['collectorVersion'],'1.4')
         self.assertEqual(out['collectionSummary']['kept'],len(out['videos']))
 
 if __name__=='__main__':unittest.main()

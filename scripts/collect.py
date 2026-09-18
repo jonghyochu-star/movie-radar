@@ -22,7 +22,7 @@ _SCRIPT_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 from screen_rules import infer_language, screen_evidence
-from discovery import validate_discovery, select_profiles, shorts_hint, diverse_snapshot, LABELS
+from discovery import validate_discovery, select_profiles, shorts_hint, diverse_snapshot, LABELS, parse_collection_plan
 
 CHANNEL = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
 
@@ -173,20 +173,48 @@ class YouTube:
                 raise CollectionError("YouTube JSON 응답을 읽지 못했습니다.") from None
         raise CollectionError("YouTube 응답을 받지 못했습니다.")
 
-def collect(api, c, rotation=0, now=None):
+def prior_pages_url(repository):
+    if not isinstance(repository,str) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",repository):
+        return None
+    owner,repo=repository.split('/',1)
+    return f"https://{owner}.github.io/{repo}/data/videos.json"
+
+def load_prior_history(repository, limit=5000):
+    """Read only public IDs from the previous deployed snapshot.
+    This makes retry/daily runs avoid immediate repeats without storing API data in GitHub.
+    """
+    url=prior_pages_url(repository)
+    if not url:return set(), None
+    try:
+        req=Request(url+'?t='+str(int(time.time())),headers={'Accept':'application/json','User-Agent':'MovieRadar/1.4'})
+        with urlopen(req,timeout=12) as response:data=json.load(response)
+        ids=[]
+        if isinstance(data,dict):
+            ids.extend(x for x in data.get('collectorHistoryIds',[]) if isinstance(x,str) and ID.fullmatch(x))
+            ids.extend(v.get('id') for v in data.get('videos',[]) if isinstance(v,dict) and isinstance(v.get('id'),str) and ID.fullmatch(v['id']))
+        return set(list(dict.fromkeys(ids))[-limit:]), None
+    except Exception:
+        return set(), '이전 배포 목록을 읽지 못해 이번 실행에서는 과거 수집 ID 제외를 건너뛰었습니다.'
+
+def collect(api, c, rotation=0, now=None, collection_preset='english_focus', custom_weights='', retry_round=1, excluded_ids=None, trigger='manual'):
     now = now or datetime.now(timezone.utc)
     stamp = timestamp(now)
     found, routes = {}, {}
     warnings = []
+    excluded_ids=set(excluded_ids or [])
+    try: collection_plan=parse_collection_plan(collection_preset,custom_weights)
+    except ValueError as exc: raise CollectionError('수집 언어 설정 오류: '+str(exc)) from None
+    allowed_output={'zh-Hans':'zh','zh-Hant':'zh',**{x:x for x in ['en','ja','es','pt','fr','de','it']}}
+    allowed_languages={allowed_output.get(x,x) for x in collection_plan['allowed']}
     plan=c.get('discovery')
     plan=plan if plan and plan['enabled'] else None
     reference_ids=plan['reference_video_ids'] if plan else []
     def add(vid, source, route='legacy'):
-        if isinstance(vid,str) and ID.fullmatch(vid) and vid not in reference_ids:
+        if isinstance(vid,str) and ID.fullmatch(vid) and vid not in reference_ids and vid not in excluded_ids:
             found.setdefault(vid,[]);routes.setdefault(vid,[])
             if source not in found[vid]:found[vid].append(source)
             if route not in routes[vid]:routes[vid].append(route)
-    selected=select_profiles(c,rotation)
+    selected=select_profiles(c,rotation,collection_preset,custom_weights,retry_round)
     query_names=[entry['q'] for entry in selected]
     languages=list(dict.fromkeys(entry['language'] for entry in selected if entry['language']))
     # The existing maximum of 8 search requests is retained (retries are separate).
@@ -250,15 +278,18 @@ def collect(api, c, rotation=0, now=None):
             source_stats.append({'channelId':cid,'channelTitle':ch.get('snippet',{}).get('title',''),
                                  'scannedUploads':scanned,'referenceSource':cid in reference_channels})
     for vid in c['video_ids']:add(vid,'설정 파일에서 지정한 영상','direct')
-    base={'schema':1,'mode':'live','generatedAt':stamp,'collectorVersion':'1.3',
+    base={'schema':1,'mode':'live','generatedAt':stamp,'collectorVersion':'1.4',
           'reviewPolicy':'manual-original-country-v1','warnings':warnings,
           'searchQueries':query_names,'searchLanguages':languages,
+          'collectionPlan':{'preset':collection_plan['preset'],'weights':collection_plan['weights'],
+                            'retryRound':int(retry_round),'trigger':trigger,
+                            'excludedPreviousIds':len(excluded_ids)},
           'discoveryPlan':[{'lane':p['lane'],'label':p['label'],'language':p['language'],'query':p['q']} for p in selected],
           'referenceSummary':{'requested':len(reference_ids),'resolved':len(resolved_reference_ids),
                               'channels':source_stats},'shortsPolicy':'publisher-hint-or-user-confirmation-only'}
     if not found:
         base['warnings'].append('검색 결과가 없습니다. 참고 출처와 검색어·기간을 확인하세요.')
-        return {**base,'videos':[]}
+        return {**base,'collectorHistoryIds':list(excluded_ids)[-5000:],'videos':[]}
     raw_videos=[]
     for batch in chunks(found):
         raw_videos.extend(api.get('videos',part='snippet,statistics,contentDetails,status,topicDetails',id=','.join(batch)).get('items',[]))
@@ -286,11 +317,16 @@ def collect(api, c, rotation=0, now=None):
         vid=v.get('id','')
         if not ID.fullmatch(vid):continue
         lang=infer_language(s);evidence=screen_evidence(v)
+        # Collection language controls actual candidates, not only the browser display.
+        # English-only is therefore strict; unknown language is never silently treated as English.
+        if plan:
+            if lang['code']!='unknown' and lang['code'] not in allowed_languages:continue
+            if collection_plan['preset'] in {'english_only','custom'} and lang['code']=='unknown':continue
         result.append({'language':lang['code'],'languageBasis':lang['basis'],'audioLanguage':lang['audio'],
                        'declaredLanguage':lang['declared'],'languageSource':lang['source'],
                        'titleLanguage':lang['titleCode'],'titleLanguageBasis':lang['titleBasis'],
                        'screenKind':evidence['kind'],'screenReason':evidence['reason'],
-                       'metadataVersion':'1.3','id':vid,'title':s.get('title',''),'channelTitle':s.get('channelTitle',''),'channelId':cid,
+                       'metadataVersion':'1.4','id':vid,'title':s.get('title',''),'channelTitle':s.get('channelTitle',''),'channelId':cid,
                        'views':number(st.get('viewCount')),'subscribers':subscribers.get(cid),
                        'publishedAt':s.get('publishedAt'),'fetchedAt':stamp,'durationSeconds':seconds,
                        'thumbnail':thumb,'originalStatus':'unverified','source':' / '.join(found.get(vid,[])[:2]),
@@ -302,11 +338,15 @@ def collect(api, c, rotation=0, now=None):
     base['collectionSummary']={'uniqueFound':len(found),'eligibleBeforeCap':eligible_count,'kept':len(result),
         'snapshotLimit':c['max_videos'],'routeCounts':{lane:sum(lane in v['discoveryRoutes'] for v in result) for lane in LABELS},
         'note':'경로별 수는 중복 포함. 조회수·감동 점수가 아니라 수집 출처를 설명합니다.'}
-    return {**base,'videos':result}
+    history=list(dict.fromkeys([*excluded_ids,*[v['id'] for v in result]]))[-5000:]
+    return {**base,'collectorHistoryIds':history,'videos':result}
 
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--mode",choices=["demo","live"],default="demo")
+    parser.add_argument("--collect-preset",choices=["english_focus","english_only","balanced","custom"],default=os.environ.get("COLLECT_PRESET","english_focus"))
+    parser.add_argument("--custom-weights",default=os.environ.get("CUSTOM_LANGUAGE_WEIGHTS",""))
+    parser.add_argument("--retry-round",type=int,choices=[1,2,3],default=int(os.environ.get("RETRY_ROUND","1")))
     args=parser.parse_args()
     target=ROOT/"site/data/videos.json"
     if args.mode=="demo":
@@ -319,11 +359,16 @@ def main():
         try:rotation=max(0,int(os.environ.get("GITHUB_RUN_NUMBER","1"))-1)
         except ValueError:rotation=0
         api=YouTube(os.environ.get("YOUTUBE_API_KEY", "").strip())
-        data=collect(api,c,rotation)
+        prior,prior_warning=load_prior_history(os.environ.get('GITHUB_REPOSITORY',''))
+        trigger=os.environ.get('COLLECTION_TRIGGER','manual')
+        data=collect(api,c,rotation,collection_preset=args.collect_preset,custom_weights=args.custom_weights,
+                     retry_round=args.retry_round,excluded_ids=prior,trigger=trigger)
+        if prior_warning:data.setdefault('warnings',[]).append(prior_warning)
         print(f"LIVE: {len(data['videos'])}개 수집. API 요청 횟수: {json.dumps(api.calls)}")
         print("수집 경로: " + ", ".join(p["lane"] for p in data.get("discoveryPlan",[])))
         print("참고 출처 채널: " + str(len(data.get("referenceSummary",{}).get("channels",[]))))
         print("검색 언어: " + ", ".join(data.get("searchLanguages", [])))
+        print("수집 언어 계획: " + json.dumps(data.get("collectionPlan",{}),ensure_ascii=False))
         evidence_counts={kind:sum(v.get("screenKind")==kind for v in data['videos']) for kind in ['film','series','unknown','non_screen']}
         small=sum(isinstance(v.get('subscribers'),int) and v['subscribers']<=10000 for v in data['videos'])
         print("메타데이터 단서 분포: " + json.dumps(evidence_counts) + f" / 공개 구독 1만 이하: {small}개")

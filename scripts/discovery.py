@@ -12,6 +12,70 @@ LABELS = {'familiar':'참고 결에서 출발', 'expand':'다른 감동 이야�
           'work':'참고 작품에서 출발', 'open':'새로운 소재 탐색',
           'source':'참고 채널에서 발견', 'direct':'직접 지정', 'legacy':'기존 검색'}
 
+SEARCH_LANGS=('en','ja','es','pt','fr','de','it','zh-Hans')
+PRESET_WEIGHTS={
+    'english_only': {'en':100},
+    'english_focus': {'en':70,'ja':5,'es':5,'pt':5,'fr':5,'de':4,'it':3,'zh-Hans':3},
+    'balanced': {'en':13,'ja':13,'es':13,'pt':13,'fr':12,'de':12,'it':12,'zh-Hans':12},
+}
+
+def parse_collection_plan(preset='english_focus', custom_weights=''):
+    preset = preset if preset in {*PRESET_WEIGHTS, 'custom'} else 'english_focus'
+    if preset!='custom':
+        weights=dict(PRESET_WEIGHTS[preset])
+    else:
+        weights={}
+        text=str(custom_weights or '').strip()
+        for piece in text.split(','):
+            if not piece.strip(): continue
+            if ':' not in piece: raise ValueError('직접 비중은 en:70,ja:10 형식이어야 합니다.')
+            lang,raw=(x.strip() for x in piece.split(':',1))
+            if lang not in SEARCH_LANGS: raise ValueError('지원하지 않는 수집 언어 코드입니다: '+lang)
+            try:value=int(raw)
+            except ValueError: raise ValueError('언어 비중은 정수여야 합니다.') from None
+            if value<0 or value>100: raise ValueError('언어 비중은 0~100이어야 합니다.')
+            if value: weights[lang]=value
+        if not weights: raise ValueError('직접 수집 언어를 하나 이상 지정하세요.')
+    total=sum(weights.values())
+    if total<=0: raise ValueError('수집 언어 비중 합계는 0보다 커야 합니다.')
+    normalized={k:v/total for k,v in weights.items() if v>0}
+    return {'preset':preset,'weights':weights,'normalized':normalized,'allowed':tuple(normalized)}
+
+def language_slots(plan,count,rotation=0):
+    """Deterministic language allocation for the tiny per-run query budget."""
+    count=max(0,int(count)); rotation=max(0,int(rotation))
+    if not count:return []
+    preset=plan.get('preset')
+    if preset=='english_only': return ['en']*count
+    if preset=='english_focus':
+        # 4 queries -> 3 English + 1 rotating non-English language.
+        english=min(count, max(1, round(count*0.70)))
+        others=[x for x in plan['allowed'] if x!='en']
+        slots=['en']*english
+        while len(slots)<count:
+            slots.append(others[(rotation+len(slots)-english)%len(others)] if others else 'en')
+        return slots
+    if preset=='balanced':
+        order=list(plan['allowed']); shift=rotation%len(order);order=order[shift:]+order[:shift]
+        return [order[i%len(order)] for i in range(count)]
+    # Custom: largest-remainder allocation, ties rotate between runs.
+    items=list(plan['normalized'].items())
+    base={lang:int(weight*count) for lang,weight in items}
+    remain=count-sum(base.values())
+    residual={lang:(weight*count)-base[lang] for lang,weight in items}
+    for _ in range(remain):
+        best=max(residual.values())
+        tied=[lang for lang,_ in items if abs(residual[lang]-best)<1e-12]
+        lang=tied[rotation%len(tied)];base[lang]+=1;residual[lang]=-1;rotation+=1
+    slots=[]; pools=dict(base); order=[lang for lang,_ in items]
+    while len(slots)<count:
+        candidates=[l for l in order if pools.get(l,0)>0]
+        if not candidates:break
+        lang=max(candidates,key=lambda l:(pools[l],plan['normalized'].get(l,0)))
+        slots.append(lang);pools[lang]-=1
+        idx=order.index(lang);order=order[idx+1:]+order[:idx+1]
+    return slots
+
 
 def validate_discovery(raw):
     if not isinstance(raw, dict) or raw.get('schema') != 1:
@@ -50,26 +114,36 @@ def validate_discovery(raw):
             'reference_pages_per_channel':pages,'reference_channel_limit':limit}
 
 
-def select_profiles(c, rotation=0):
-    """Reserve broad exploration every run, under the pre-existing 4-query budget.
-    Languages and stories rotate; no theme is mandatory for a returned video.
-    Legacy config remains usable when discovery.json is absent/disabled.
+def select_profiles(c, rotation=0, preset='english_focus', custom_weights='', retry_round=1):
+    """Select a bounded set of routes and languages for one collection run.
+    retry_round changes the discovery emphasis, but never relaxes hard UI criteria.
     """
     plan=c.get('discovery')
-    rotation=max(0,int(rotation))
+    rotation=max(0,int(rotation)); retry_round=min(3,max(1,int(retry_round)))
     if plan and plan['enabled']:
         count=min(c['queries_per_run'],4)
-        # Under a smaller budget still keep discovery; 4 is the shipped setting.
-        lane_order=list(LANES) if count==4 else (['open'] if count==1 else ['familiar','open'] if count==2 else ['familiar','expand','open'])
-        langs=[x for x in dict.fromkeys(p['language'] for p in plan['profiles']) if x!='en']
-        anchor_slot=rotation%count
-        selected=[];non_en_index=0
+        lane_sets={
+            1:['familiar','expand','work','open'],
+            2:['expand','open','familiar','open'],
+            3:['open','expand','open','work'],
+        }
+        full=lane_sets[retry_round]
+        if count==1: lane_order=['open']
+        elif count==2: lane_order=[full[0],'open']
+        elif count==3: lane_order=[full[0],full[1],'open']
+        else: lane_order=full
+        collection=parse_collection_plan(preset,custom_weights)
+        langs=language_slots(collection,count,rotation+retry_round-1)
+        selected=[]
         for i,lane in enumerate(lane_order):
             options=[p for p in plan['profiles'] if p['lane']==lane]
-            lang='en' if i==anchor_slot or not langs else langs[(rotation*(count-1)+non_en_index)%len(langs)]
-            if i!=anchor_slot:non_en_index+=1
-            preferred=[p for p in options if p['language']==lang] or options
-            selected.append(preferred[(rotation//count)%len(preferred)])
+            lang=langs[i] if i<len(langs) else 'en'
+            preferred=[p for p in options if p['language']==lang]
+            if not preferred:
+                # This can only happen with a malformed future discovery file; keep route exploration.
+                preferred=options
+            index=(rotation + (retry_round-1)*3 + i)//max(1,count)
+            selected.append(preferred[index%len(preferred)])
         return selected
     pool=c['queries'];count=min(c['queries_per_run'],len(pool))
     anchor=next((e for e in pool if e['language']==c.get('anchor_language') and e['language']),None)

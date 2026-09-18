@@ -127,11 +127,30 @@ class TestCollect(unittest.TestCase):
                         if v['id']==HIDDEN:v['snippet']['defaultAudioLanguage']='hi'
                 return data
         out=m.collect(Mixed(),self.config())
-        self.assertEqual(out['collectorVersion'],'1.3')
+        self.assertEqual(out['collectorVersion'],'1.4')
         missing=next(v for v in out['videos'] if v['id']==GOOD)
         audio=next(v for v in out['videos'] if v['id']==HIDDEN)
         self.assertEqual((missing['language'],missing['declaredLanguage'],missing['languageSource']),('unknown','en','unknown'))
         self.assertEqual((audio['language'],audio['audioLanguage'],audio['declaredLanguage']),('hi','hi','en'))
         self.assertEqual(missing['originalStatus'],'unverified')
         self.assertIn('movie scene',missing['screenReason'])
+    def test_english_only_filters_known_non_english_in_discovery_mode(self):
+        class Japanese(FakeAPI):
+            def get(self,endpoint,**params):
+                data=super().get(endpoint,**params)
+                if endpoint=='videos':
+                    for v in data['items']:
+                        v['snippet']['defaultAudioLanguage']='ja';v['snippet']['title']='映画 シーン 感動'
+                return data
+        c=m.load_config(ROOT/'config.json')
+        out=m.collect(Japanese(),c,collection_preset='english_only')
+        self.assertEqual(out['videos'],[])
+    def test_previous_ids_are_excluded(self):
+        c=m.load_config(ROOT/'config.json')
+        out=m.collect(FakeAPI(),c,excluded_ids={GOOD})
+        self.assertNotIn(GOOD,[v['id'] for v in out['videos']])
+        self.assertIn(GOOD,out['collectorHistoryIds'])
+    def test_prior_pages_url_is_bounded(self):
+        self.assertEqual(m.prior_pages_url('owner/repo'),'https://owner.github.io/repo/data/videos.json')
+        self.assertIsNone(m.prior_pages_url('bad/../../repo'))
 if __name__=='__main__':unittest.main()

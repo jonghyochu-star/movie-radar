@@ -7,7 +7,7 @@
   'use strict';
   const MAX_AGE = 29 * 86400000;
   const validId = id => typeof id === 'string' && /^(?:[A-Za-z0-9_-]{11}|demo-[1-9][0-9]*)$/.test(id);
-  const blank = () => ({schema:1, records:Object.create(null)});
+  const blank = () => ({schema:1, records:Object.create(null), batchFeedback:[]});
   function record(id) {
     return {id,rating:null,stage:null,origin:'unknown',media:'unknown',format:'unknown',memo:'',label:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),cache:null};
   }
@@ -28,6 +28,9 @@
       const t=Date.parse(r.cache?.fetchedAt);
       if(r.cache?.id===id && Number.isFinite(t) && now-t<MAX_AGE && t<=now+60000) x.cache=r.cache;
       out.records[id]=x;
+    }
+    if(Array.isArray(raw.batchFeedback)){
+      out.batchFeedback=raw.batchFeedback.filter(x=>x&&typeof x==='object'&&typeof x.generatedAt==='string'&&Number.isFinite(Date.parse(x.generatedAt))&&['no_harvest','useful'].includes(x.outcome)).slice(-200).map(x=>({generatedAt:x.generatedAt,outcome:x.outcome,at:typeof x.at==='string'&&Number.isFinite(Date.parse(x.at))?x.at:new Date().toISOString(),retryRound:Number.isInteger(x.retryRound)?Math.min(3,Math.max(1,x.retryRound)):1}));
     }
     return out;
   }
@@ -75,10 +78,12 @@
   }
   function exportData(state) {
     const result=blank();
-    for(const [id,r] of Object.entries(normalize(state).records)) {
+    const normalized=normalize(state);
+    for(const [id,r] of Object.entries(normalized.records)) {
       // Preserve user-created data, not long-lived API metadata snapshots.
       const {cache,...userData}=r;result.records[id]=userData;
     }
+    result.batchFeedback=normalized.batchFeedback.slice(-200);
     return result;
   }
   function merge(a,b) {
@@ -86,6 +91,10 @@
     for(const [id,r] of Object.entries(right.records)) {
       if(!left.records[id] || Date.parse(r.updatedAt)>Date.parse(left.records[id].updatedAt))left.records[id]=r;
     }
+    const feedback=[...(left.batchFeedback||[]),...(right.batchFeedback||[])];
+    const seen=new Set();left.batchFeedback=[];
+    for(const x of feedback.sort((a,b)=>Date.parse(a.at||0)-Date.parse(b.at||0))){const k=x.generatedAt+'|'+x.outcome;if(seen.has(k))continue;seen.add(k);left.batchFeedback.push(x);}
+    left.batchFeedback=left.batchFeedback.slice(-200);
     return left;
   }
   function parseLink(text) {
@@ -185,6 +194,13 @@
     return {status:'unknown',label:'쇼츠 여부 미확인',reason:'3분 이하라는 이유만으로 Shorts로 확정하지 않았습니다.'};
   }
   function routesOf(v={}) {const a=Array.isArray(v.discoveryRoutes)?v.discoveryRoutes.filter(x=>typeof x==='string'&&Object.hasOwn(ROUTE_LABELS,x)):[];return a.length?[...new Set(a)]:['legacy'];}
+  function recordBatchFeedback(state,generatedAt,outcome,retryRound=1,at=new Date().toISOString()) {
+    if(!['no_harvest','useful'].includes(outcome))throw Error('지원하지 않는 수집 피드백입니다.');
+    if(typeof generatedAt!=='string'||!Number.isFinite(Date.parse(generatedAt)))throw Error('현재 수집 시각을 확인할 수 없습니다.');
+    const next=normalize(state);next.batchFeedback=next.batchFeedback.filter(x=>!(x.generatedAt===generatedAt&&x.outcome===outcome));
+    next.batchFeedback.push({generatedAt,outcome,retryRound:Math.min(3,Math.max(1,Number(retryRound)||1)),at});next.batchFeedback=next.batchFeedback.slice(-200);return next;
+  }
+
   function mixRoutes(items,languageOrder=preferredLanguages(),balanceLanguage=false) {
     const groups=new Map();
     for(const v of items){
@@ -196,5 +212,5 @@
     return roundRobin([...groups.values()].map(g=>balanceLanguage?balanceVideos(g,languageOrder):g));
   }
 
-  return {formatOf, shortsInfo, routesOf, ROUTE_LABELS, mixRoutes, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
+  return {formatOf, shortsInfo, routesOf, ROUTE_LABELS, mixRoutes, recordBatchFeedback, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
 });
