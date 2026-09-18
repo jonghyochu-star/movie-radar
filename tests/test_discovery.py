@@ -1,0 +1,138 @@
+"""Offline tests: synthetic YouTube responses; never use a real API key."""
+import copy
+import importlib.util
+import json
+import tempfile
+import unittest
+from datetime import datetime, timezone
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[1]
+spec=importlib.util.spec_from_file_location('collect13',ROOT/'scripts/collect.py')
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+from discovery import select_profiles,validate_discovery,shorts_hint,diverse_snapshot
+CID='UC'+'r'*22; LARGE='UC'+'s'*22
+VID='DemoVideo01';ALT='DemoVideo02';REF='bTL6azhffzA'
+
+def make_video(vid,cid=CID,seconds='PT1M20S'):
+    return {'id':vid,'snippet':{'title':'A father gives her a second chance #shorts','description':'Movie scene: a fictional test, not a real work.','channelId':cid,'channelTitle':'Synthetic fixture','categoryId':'1','defaultAudioLanguage':'en','liveBroadcastContent':'none','publishedAt':'2026-09-01T00:00:00Z'},'contentDetails':{'duration':seconds},'statistics':{'viewCount':'750000'},'status':{'privacyStatus':'public'}}
+
+class Fake:
+    def __init__(self):self.calls=[]
+    def get(self,endpoint,**p):
+        self.calls.append((endpoint,p))
+        if endpoint=='search':return {'items':[{'id':{'videoId':VID}},{'id':{'videoId':REF}}]}
+        if endpoint=='videos' and p['part']=='snippet':return {'items':[{'id':REF,'snippet':{'channelId':LARGE}}]}
+        if endpoint=='videos':return {'items':[make_video(x,LARGE if x==ALT else CID) for x in p['id'].split(',')]}
+        if endpoint=='channels' and 'contentDetails' in p['part']:
+            return {'items':[{'id':c,'snippet':{'title':'Reference source'},'contentDetails':{'relatedPlaylists':{'uploads':'UU'+c[2:]}}} for c in p['id'].split(',')]}
+        if endpoint=='playlistItems':return {'items':[{'contentDetails':{'videoId':ALT}}],'nextPageToken':'page2'}
+        if endpoint=='channels':return {'items':[{'id':c,'statistics':{'subscriberCount':'900000' if c==LARGE else '2500','hiddenSubscriberCount':False}} for c in p['id'].split(',')]}
+        raise AssertionError(endpoint)
+
+class DiscoveryTests(unittest.TestCase):
+    def config(self):return m.load_config(ROOT/'config.json')
+    def test_new_plan_is_loaded(self):self.assertTrue(self.config()['discovery']['enabled'])
+    def test_each_run_preserves_open_lane(self):
+        for r in range(100):
+            rows=select_profiles(self.config(),r)
+            self.assertEqual(len(rows),4)
+            self.assertEqual({x['lane'] for x in rows},{'familiar','expand','work','open'})
+    def test_languages_mixed_not_english_only(self):
+        all_langs=set()
+        for r in range(16):
+            langs=[x['language'] for x in select_profiles(self.config(),r)]
+            self.assertIn('en',langs);self.assertGreaterEqual(len(set(langs)),3);all_langs.update(langs)
+        self.assertEqual(len(all_langs),8)
+    def test_topics_not_frozen_to_nine_examples(self):
+        topics={x['label'] for r in range(128) for x in select_profiles(self.config(),r)}
+        for term in ['유머 속 따뜻함','노력 끝의 인정','존엄과 인정','용서와 두 번째 기회']:self.assertIn(term,topics)
+    def test_reference_ids_exact_no_guessed_channel(self):
+        refs=self.config()['discovery']['reference_video_ids']
+        self.assertEqual(refs,['bTL6azhffzA','sHEUBff9pEg','z_clVFgQEbE','je_xDVmXpvQ'])
+        self.assertEqual(self.config()['channel_ids'],[])
+    def test_search_stays_eight(self):
+        api=Fake();m.collect(api,self.config());self.assertEqual(sum(e=='search' for e,_ in api.calls),8)
+    def test_search_not_movie_topic_gated(self):
+        api=Fake();m.collect(api,self.config());self.assertTrue(all('topicId' not in p for e,p in api.calls if e=='search'))
+    def test_reference_channel_followed_even_large(self):
+        api=Fake();data=m.collect(api,self.config())
+        self.assertIn(ALT,[v['id'] for v in data['videos']])
+        self.assertEqual(next(v for v in data['videos'] if v['id']==ALT)['subscribers'],900000)
+        self.assertEqual(data['referenceSummary']['resolved'],1)
+        self.assertTrue(data['warnings']) # remaining links missing, not fabricated
+    def test_reference_video_not_new_candidate(self):
+        data=m.collect(Fake(),self.config());self.assertNotIn(REF,[v['id'] for v in data['videos']])
+    def test_provenance_is_not_content_score(self):
+        data=m.collect(Fake(),self.config())
+        v=next(v for v in data['videos'] if v['id']==VID)
+        self.assertEqual(set(v['discoveryRoutes']),{'familiar','expand','work','open'})
+        self.assertEqual(v['originalStatus'],'unverified');self.assertNotIn('score',v)
+        self.assertNotIn('isShort',v);self.assertTrue(v['shortsHint'])
+    def test_nonreferenced_new_work_is_not_excluded(self):
+        class NewWork(Fake):
+            def get(self,e,**p):
+                data=super().get(e,**p)
+                if e=='videos' and p['part']!='snippet':
+                    for x in data['items']:x['snippet']['title']='Unlisted independent film scene #shorts'
+                return data
+        self.assertEqual(len(m.collect(NewWork(),self.config())['videos']),2)
+    def test_hint_requires_explicit_marker_not_length(self):
+        self.assertFalse(shorts_hint({'title':'movie scene','durationSeconds':30}))
+        self.assertTrue(shorts_hint({'title':'hello #Shorts'}))
+        self.assertTrue(shorts_hint({'tags':['shorts']}))
+        self.assertFalse(shorts_hint({'title':'shortsword technique'}))
+    def test_missing_references_no_crash(self):
+        class Missing(Fake):
+            def get(self,e,**p):
+                if e=='videos' and p['part']=='snippet':return {'items':[]}
+                return super().get(e,**p)
+        data=m.collect(Missing(),self.config());self.assertEqual(data['referenceSummary']['resolved'],0)
+        self.assertEqual(len(data['videos']),1);self.assertTrue(data['warnings'])
+    def test_unavailable_playlist_is_warning(self):
+        class Unavailable(Fake):
+            def get(self,e,**p):
+                if e=='playlistItems':raise m.CollectionError('safe','playlistNotFound')
+                return super().get(e,**p)
+        self.assertEqual(len(m.collect(Unavailable(),self.config())['videos']),1)
+    def test_quota_failure_not_swallowed(self):
+        class Quota(Fake):
+            def get(self,e,**p):
+                if e=='playlistItems':raise m.CollectionError('quota','quotaExceeded')
+                return super().get(e,**p)
+        with self.assertRaises(m.CollectionError):m.collect(Quota(),self.config())
+    def test_default_playlist_one_page(self):
+        api=Fake();m.collect(api,self.config());self.assertEqual(sum(e=='playlistItems' for e,p in api.calls),1)
+    def test_bounded_pagination_and_dedup(self):
+        c=self.config();c['discovery']['reference_pages_per_channel']=2
+        api=Fake();data=m.collect(api,c)
+        self.assertEqual(sum(e=='playlistItems' for e,p in api.calls),2)
+        self.assertEqual(len(data['videos']),2)
+    def test_cap_preserves_small_and_new_lanes(self):
+        rows=[{'id':str(i),'views':10000-i,'subscribers':100000,'discoveryRoutes':['work']} for i in range(50)]
+        rows += [{'id':'small','views':1000,'subscribers':2000,'discoveryRoutes':['open']}, {'id':'small2','views':900,'subscribers':8000,'discoveryRoutes':['expand']}]
+        out=diverse_snapshot(rows,5);self.assertIn('small',[v['id'] for v in out]);self.assertEqual(len(out),5)
+    def test_under_cap_keeps_everything(self):
+        rows=[{'id':str(i),'views':i,'subscribers':100} for i in range(3)]
+        self.assertEqual(len(diverse_snapshot(rows,400)),3)
+    def test_invalid_plan_ref_rejected(self):
+        raw=json.loads((ROOT/'discovery.json').read_text());raw['reference_video_ids']=['invalid!']
+        with self.assertRaises(ValueError):validate_discovery(raw)
+    def test_missing_open_lane_rejected(self):
+        raw=json.loads((ROOT/'discovery.json').read_text());raw['profiles']=[p for p in raw['profiles'] if p['lane']!='open']
+        with self.assertRaises(ValueError):validate_discovery(raw)
+    def test_invalid_plan_file_does_not_silently_fallback(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d);(p/'config.json').write_text(json.dumps({'queries':['movie scene']}));(p/'discovery.json').write_text('{}')
+            with self.assertRaises(m.CollectionError):m.load_config(p/'config.json')
+    def test_disabled_plan_returns_legacy(self):
+        c=self.config();c['discovery']['enabled']=False
+        self.assertEqual({p['lane'] for p in select_profiles(c,0)},{'legacy'})
+    def test_lower_query_budget_still_explores(self):
+        c=self.config()
+        for n in [1,2,3]:
+            c['queries_per_run']=n;out=select_profiles(c,0);self.assertEqual(len(out),n);self.assertIn('open',[p['lane'] for p in out])
+    def test_snapshot_metadata_has_new_version(self):
+        out=m.collect(Fake(),self.config());self.assertEqual(out['collectorVersion'],'1.3')
+        self.assertEqual(out['collectionSummary']['kept'],len(out['videos']))
+
+if __name__=='__main__':unittest.main()

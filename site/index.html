@@ -5,11 +5,11 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="description" content="영화 쇼츠 소재를 찾고, 저장하고, 제작 후보로 선별하는 개인용 작업 보드">
 <title>Movie Radar — 소재에서 제작까지</title>
-<link rel="stylesheet" href="styles.css?v=1.2.1">
-<script defer src="core.js?v=1.2.1"></script><script defer src="app.js?v=1.2.1"></script>
+<link rel="stylesheet" href="styles.css?v=1.3">
+<script defer src="core.js?v=1.3"></script><script defer src="app.js?v=1.3"></script>
 </head>
 <body>
-<header class="header"><div class="brand"><span class="brandmark">M<span>R</span></span><div><h1>Movie Radar <small class="version">1.2.1</small></h1><p>발견은 가볍게, 선택은 내 취향대로.</p></div></div><div class="header-actions"><span id="mode" class="pill">불러오는 중</span><button id="refresh" class="quiet">목록 새로고침</button></div></header>
+<header class="header"><div class="brand"><span class="brandmark">M<span>R</span></span><div><h1>Movie Radar <small class="version">1.3</small></h1><p>발견은 가볍게, 선택은 내 취향대로.</p></div></div><div class="header-actions"><span id="mode" class="pill">불러오는 중</span><button id="refresh" class="quiet">목록 새로고침</button></div></header>
 <main>
 <section class="hero"><div><p class="eyebrow">YOUR NEXT STORY</p><h2>다음 이야기를 찾는 곳.</h2><p>조회수와 채널 규모를 비교하고, 마음에 남는 장면을 제작 후보로 모으세요.</p></div><div class="hero-note"><strong>좋아요 ≠ 바로 제작</strong><span>저장한 뒤, 한 번 더 골라도 됩니다.</span></div></section>
 <div id="notice" class="notice" role="status"></div>
@@ -36,11 +36,18 @@
 <label>영상 길이<select id="duration-preset"><option value="0:180">전체 수집범위 · 3분 이하</option><option value="0:60">1분 이하</option><option value="30:90">30초~1분 30초</option><option value="60:180">1~3분</option><option value="120:180">2~3분</option><option value="custom">직접 입력</option></select></label>
 <div class="duration-inputs"><label>최소(초)<input id="min-seconds" type="number" min="0" max="180" step="1" value="0"></label><span>~</span><label>최대(초)<input id="max-seconds" type="number" min="0" max="180" step="1" value="180"></label></div>
 </div>
+<div class="discovery-controls">
+<label>발견 경로<select id="route-filter"><option value="all">모든 경로 함께</option value="familiar">참고 결에서 출발</option><option value="expand">다른 감동 이야기 탐색</option><option value="work">참고 작품에서 출발</option><option value="open">새로운 소재 탐색</option><option value="source">참고 채널에서 발견</option><option value="legacy">이전 검색</option></select></label>
+<label>쇼츠 여부<select id="shorts-filter"><option value="any">미확인 포함 · 일반 영상 제외</option><option value="hinted">쇼츠 표기 단서 또는 내가 확인</option><option value="confirmed">내가 확인한 쇼츠만</option></select></label>
+<label class="mix-label"><input id="mix-discovery" type="checkbox" checked>다양한 발견 경로 섞기</label>
+</div>
+<p class="filter-footnote">쇼츠 표기·길이는 확정 근거가 아닙니다. ‘내가 확인한 쇼츠만’은 직접 확인한 기록이 없으면 0개입니다. 일반 영상은 카드에서 따로 제외할 수 있습니다.</p>
+<details id="discovery-summary" class="discovery-summary" hidden></details>
 <details class="language-details"><summary>표시 언어 선택 <span id="language-summary"></span></summary>
 <p>음성 언어 설정을 우선하고, 없으면 제목의 문자·문장 단서로 추정합니다. 제목·설명 언어 설정만으로 통과시키지 않습니다. ‘음성 설정’도 업로더 입력값이며 실제 음성 인식 결과가 아닙니다. 자막 언어·원작 제작국은 별도 확인합니다.</p>
 <div id="language-checks" class="language-checks"></div>
 <div class="language-actions"><button id="preferred-languages">우선 언어 8개</button><button id="all-languages">모든 언어</button><label><input id="include-unknown-language" type="checkbox">언어 미확인 포함</label></div>
-<p>언어 선택은 이미 수집된 목록의 표시만 바꿉니다. 기본 검색은 영어 + 일본어·스페인어·포르투갈어·프랑스어·독일어·이탈리아어·중국어 중 3개를 순환합니다. 힌디어·아랍어 전용 검색어는 기본 수집에서 사용하지 않습니다.</p>
+<p>언어 선택은 이미 수집된 목록의 표시만 바꿉니다. 기본 검색은 네 경로에서 영어와 다른 언어를 섞어 순환합니다. 출처 채널은 검색 언어와 별도로 조회합니다. 힌디어·아랍어 전용 검색어는 기본 수집에서 사용하지 않습니다.</p>
 </details>
 <label class="balance-check"><input id="balance" type="checkbox" checked>언어·채널 골고루 보기 <span>켜면 선택한 정렬을 바탕으로 번갈아 표시합니다. 전체 조회수 내림차순은 아닙니다.</span></label>
 <div id="filter-summary" class="filter-summary" role="status"></div>
@@ -50,7 +57,7 @@
 <section id="content" aria-live="polite"></section>
 <div class="pager"><button id="previous" class="quiet">이전 묶음</button><span id="page-label"></span><button id="next" class="primary">다음 20개</button><button id="revisit" class="quiet">나중에 넘긴 소재 다시 보기</button></div>
 <section class="storagebar"><div><strong>내 선택은 이 브라우저에 저장됩니다.</strong><p>다른 PC·브라우저와 자동으로 동기화되지 않습니다. 중요한 선택은 백업해 두세요.</p></div><div><button id="backup">내 기록 백업</button><button id="restore">백업 복원</button><input type="file" id="import-file" accept=".json,application/json" hidden></div></section>
-<footer><span id="updated">정보를 확인하고 있습니다.</span><p>Movie Radar의 평가는 YouTube 좋아요·구독에 영향을 주지 않습니다. 버전 1.2.1 · 다국어로 찾은 짧은 영상 후보입니다. 영화 단서는 제목·설명 등의 규칙 분석이며 영상 자체를 검증한 결과가 아닙니다. 원작 제작국·감동결·Shorts 여부는 직접 확인해 주세요. 한국 영화로 표시한 영상은 추천·보관함·제작 후보에서 숨기고 평가 기록에 남깁니다.</p><a href="privacy.html">개인정보·이용 안내</a> · <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube 이용약관</a> · <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google 개인정보처리방침</a> · <button id="clear" class="link danger">이 앱의 내 기록 삭제</button></footer>
+<footer><span id="updated">정보를 확인하고 있습니다.</span><p>Movie Radar의 평가는 YouTube 좋아요·구독에 영향을 주지 않습니다. 버전 1.3 · 다국어로 찾은 짧은 영상 후보입니다. 영화 단서는 제목·설명 등의 규칙 분석이며 영상 자체를 검증한 결과가 아닙니다. 원작 제작국·감동결·Shorts 여부는 직접 확인해 주세요. 한국 영화로 표시한 영상은 추천·보관함·제작 후보에서 숨기고 평가 기록에 남깁니다.</p><a href="privacy.html">개인정보·이용 안내</a> · <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube 이용약관</a> · <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google 개인정보처리방침</a> · <button id="clear" class="link danger">이 앱의 내 기록 삭제</button></footer>
 </main>
 <div id="toast" role="status" class="toast" hidden></div>
 <dialog id="edit-dialog"><form id="edit-form"><h2>소재 메모</h2><p>확인한 작품명·제작국·확인 출처를 메모해 두면 다시 찾기 쉽습니다.</p><label>내가 찾기 쉬운 이름<input id="edit-label" maxlength="150" placeholder="예: 할아버지의 노래, 아빠와 딸"></label><label>메모<textarea id="edit-memo" maxlength="5000" rows="6" placeholder="감동 포인트, 확인할 원작 장면, 나만의 구성 등을 기록하세요."></textarea></label><div class="dialogbuttons"><button type="button" id="edit-cancel">취소</button><button class="primary" type="submit">메모 저장</button></div></form></dialog>

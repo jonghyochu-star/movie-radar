@@ -22,11 +22,16 @@ _SCRIPT_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 from screen_rules import infer_language, screen_evidence
+from discovery import validate_discovery, select_profiles, shorts_hint, diverse_snapshot, LABELS
 
 CHANNEL = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
 
 class CollectionError(Exception):
     """Safe error message: never include request URL / credentials."""
+    def __init__(self, message, reason=''):
+        super().__init__(message)
+        self.reason=reason
+
 
 def number(value):
     try:
@@ -115,6 +120,12 @@ def load_config(path):
         raise CollectionError("recent_topic_id 형식이 잘못되었습니다.")
     # Region is availability, NOT a film's production country. Never use it
     # or a channel's language/country to infer whether the original film is Korean.
+    plan_path=Path(path).resolve().parent/'discovery.json'
+    if plan_path.exists():
+        try:
+            c['discovery']=validate_discovery(json.loads(plan_path.read_text(encoding='utf-8')))
+        except (OSError, ValueError) as exc:
+            raise CollectionError('discovery.json을 확인하세요: '+str(exc)) from None
     return c
 
 class YouTube:
@@ -154,7 +165,7 @@ class YouTube:
                     "ipRefererBlocked":"API 키의 앱 제한이 GitHub Actions 요청을 차단했습니다. 서버용 키의 제한을 확인하세요.",
                     "forbidden":"YouTube API 접근이 거부되었습니다. API 활성화·키 제한을 확인하세요.",
                 }
-                raise CollectionError(messages.get(reason,f"YouTube 요청 실패 (HTTP {exc.code}). API 활성화·키 제한·할당량을 확인하세요.")) from None
+                raise CollectionError(messages.get(reason,f"YouTube 요청 실패 (HTTP {exc.code}). API 활성화·키 제한·할당량을 확인하세요."), reason=reason) from None
             except (URLError,TimeoutError) as exc:
                 if attempt<2:time.sleep(2**attempt);continue
                 raise CollectionError("YouTube 연결에 실패했습니다. 기존 배포는 유지됩니다.") from None
@@ -165,93 +176,133 @@ class YouTube:
 def collect(api, c, rotation=0, now=None):
     now = now or datetime.now(timezone.utc)
     stamp = timestamp(now)
-    found = {}
+    found, routes = {}, {}
     warnings = []
-    def add(vid, source):
-        if isinstance(vid,str) and ID.fullmatch(vid):
-            found.setdefault(vid,[])
+    plan=c.get('discovery')
+    plan=plan if plan and plan['enabled'] else None
+    reference_ids=plan['reference_video_ids'] if plan else []
+    def add(vid, source, route='legacy'):
+        if isinstance(vid,str) and ID.fullmatch(vid) and vid not in reference_ids:
+            found.setdefault(vid,[]);routes.setdefault(vid,[])
             if source not in found[vid]:found[vid].append(source)
-    pool = c["queries"]
-    count = min(c["queries_per_run"],len(pool))
-    anchor=next((entry for entry in pool if entry["language"]==c.get("anchor_language") and entry["language"]),None)
-    if anchor:
-        others=[entry for entry in pool if entry is not anchor]
-        take=count-1
-        selected=[anchor]+([others[(rotation*take+i)%len(others)] for i in range(take)] if others else [])
-    else:
-        selected=[pool[(rotation*count+i)%len(pool)] for i in range(count)] if pool else []
-    # Up to 8 search calls per run: recent + all-time for each selected query.
-    # Rotate language-specific searches without multiplying the per-run request budget.
-    # An API language preference is not a hard language or original-country filter.
-    query_names = [entry["q"] for entry in selected]
-    languages = list(dict.fromkeys(entry["language"] for entry in selected if entry["language"]))
+            if route not in routes[vid]:routes[vid].append(route)
+    selected=select_profiles(c,rotation)
+    query_names=[entry['q'] for entry in selected]
+    languages=list(dict.fromkeys(entry['language'] for entry in selected if entry['language']))
+    # The existing maximum of 8 search requests is retained (retries are separate).
+    # No request multiplies with the number of reference uploads or themes.
     for profile in selected:
-        query = profile["q"]
-        for recent in [True, False]:
-            params = dict(part="snippet",type="video",q=query,order=c["recent_order"] if recent else c["archive_order"],videoDuration="short",
-                          maxResults=c["results_per_search"], safeSearch="moderate")
-            # Only the recent pass uses the Movies topic: the other pass stays broad
-            # enough to discover under-classified movie clips and TV scenes.
-            if recent and c.get("recent_topic_id"):
-                params["topicId"]=c["recent_topic_id"]
-            if profile["language"]:
-                params["relevanceLanguage"] = profile["language"]
-            if c["region_code"]:
-                params["regionCode"] = c["region_code"]
-            days = c["recent_days"] if recent else c["archive_days"]
-            if days: params["publishedAfter"] = timestamp(now-timedelta(days=days))
-            scope = f"최근 {days}일" if days else "전체 기간"
-            result = api.get("search", **params)
-            for item in result.get("items",[]):
-                add(item.get("id",{}).get("videoId"),f"검색어: {query} · {scope}")
-    if c["channel_ids"]:
-        result = api.get("channels",part="contentDetails",id=",".join(c["channel_ids"]))
-        for ch in result.get("items",[]):
-            playlist = ch.get("contentDetails",{}).get("relatedPlaylists",{}).get("uploads")
+        for recent in [True,False]:
+            params=dict(part='snippet',type='video',q=profile['q'],
+                        order=c['recent_order'] if recent else c['archive_order'],
+                        videoDuration='short',maxResults=c['results_per_search'],safeSearch='moderate')
+            # In the new plan the film topic is NOT a gate: it loses TV/indie scenes.
+            if not plan and recent and c.get('recent_topic_id'):params['topicId']=c['recent_topic_id']
+            if profile['language']:params['relevanceLanguage']=profile['language']
+            if c['region_code']:params['regionCode']=c['region_code']
+            days=c['recent_days'] if recent else c['archive_days']
+            if days:params['publishedAfter']=timestamp(now-timedelta(days=days))
+            scope=f'최근 {days}일' if days else '전체 기간'
+            result=api.get('search',**params)
+            for item in result.get('items',[]):
+                add(item.get('id',{}).get('videoId'),
+                    f"{LABELS[profile['lane']]} / {profile['label']} · 검색어: {profile['q']} · {scope}",profile['lane'])
+    # Resolve user-provided VIDEO IDs at runtime; never guess channel IDs or map
+    # the user's 9 files to these 4 URLs. Reference videos themselves are not new candidates.
+    reference_channels=[];resolved_reference_ids=[]
+    if reference_ids:
+        seed_result=api.get('videos',part='snippet',id=','.join(reference_ids))
+        for v in seed_result.get('items',[]):
+            if v.get('id') not in reference_ids:continue
+            cid=v.get('snippet',{}).get('channelId','')
+            if isinstance(cid,str) and CHANNEL.fullmatch(cid):
+                resolved_reference_ids.append(v['id'])
+                if cid not in reference_channels:reference_channels.append(cid)
+        missing=len(set(reference_ids)-set(resolved_reference_ids))
+        if missing:warnings.append(f'참고 링크 {missing}개의 공개 채널 정보를 확인하지 못해 해당 출처는 건너뛰었습니다.')
+        reference_channels=reference_channels[:plan['reference_channel_limit']]
+    source_channels=list(dict.fromkeys(reference_channels+c['channel_ids']))
+    source_stats=[]
+    if source_channels:
+        response=api.get('channels',part='snippet,contentDetails',id=','.join(source_channels))
+        for ch in response.get('items',[]):
+            cid=ch.get('id','')
+            if cid not in source_channels:continue
+            playlist=ch.get('contentDetails',{}).get('relatedPlaylists',{}).get('uploads')
             if not playlist:continue
-            # One page per source channel in this lightweight version.
-            uploads = api.get("playlistItems",part="contentDetails",playlistId=playlist,maxResults=50)
-            for item in uploads.get("items",[]):add(item.get("contentDetails",{}).get("videoId"),"지정한 채널의 최근 업로드")
-    for vid in c["video_ids"]:add(vid,"설정 파일에서 지정한 영상")
+            pages=plan['reference_pages_per_channel'] if plan and cid in reference_channels else 1
+            token=None;seen_tokens=set();scanned=0
+            for page in range(pages):
+                params={'part':'contentDetails','playlistId':playlist,'maxResults':50}
+                if token:params['pageToken']=token
+                try:uploads=api.get('playlistItems',**params)
+                except CollectionError as exc:
+                    if exc.reason in {'playlistNotFound','playlistItemsNotAccessible'}:
+                        warnings.append('참고 채널 1개의 업로드 목록에 접근하지 못해 건너뛰었습니다.');break
+                    raise
+                entries=uploads.get('items',[]);scanned+=len(entries)
+                for item in entries:
+                    add(item.get('contentDetails',{}).get('videoId'),
+                        '참고 채널의 업로드 목록에서 발견 · 같은 감동결이라는 보장은 없음' if cid in reference_channels else '지정한 채널의 최근 업로드','source')
+                token=uploads.get('nextPageToken')
+                if not token or token in seen_tokens:break
+                seen_tokens.add(token)
+            source_stats.append({'channelId':cid,'channelTitle':ch.get('snippet',{}).get('title',''),
+                                 'scannedUploads':scanned,'referenceSource':cid in reference_channels})
+    for vid in c['video_ids']:add(vid,'설정 파일에서 지정한 영상','direct')
+    base={'schema':1,'mode':'live','generatedAt':stamp,'collectorVersion':'1.3',
+          'reviewPolicy':'manual-original-country-v1','warnings':warnings,
+          'searchQueries':query_names,'searchLanguages':languages,
+          'discoveryPlan':[{'lane':p['lane'],'label':p['label'],'language':p['language'],'query':p['q']} for p in selected],
+          'referenceSummary':{'requested':len(reference_ids),'resolved':len(resolved_reference_ids),
+                              'channels':source_stats},'shortsPolicy':'publisher-hint-or-user-confirmation-only'}
     if not found:
-        return {"schema":1,"mode":"live","generatedAt":stamp,"collectorVersion":"1.2.1","reviewPolicy":"manual-original-country-v1","warnings":["검색 결과가 없습니다. 설정의 검색어·기간을 확인하세요."],"videos":[],"searchQueries":query_names,"searchLanguages":languages}
+        base['warnings'].append('검색 결과가 없습니다. 참고 출처와 검색어·기간을 확인하세요.')
+        return {**base,'videos':[]}
     raw_videos=[]
     for batch in chunks(found):
-        raw_videos.extend(api.get("videos",part="snippet,statistics,contentDetails,status,topicDetails",id=",".join(batch)).get("items",[]))
-    eligible=[]
+        raw_videos.extend(api.get('videos',part='snippet,statistics,contentDetails,status,topicDetails',id=','.join(batch)).get('items',[]))
+    eligible=[];seen=set()
     for v in raw_videos:
-        s=v.get("snippet",{});seconds=duration_seconds(v.get("contentDetails",{}).get("duration"))
-        if v.get("status",{}).get("privacyStatus")!="public":continue
-        if s.get("liveBroadcastContent","none")!="none":continue
-        if seconds is None or not c["min_seconds"]<=seconds<=c["max_seconds"]:continue
+        vid=v.get('id','')
+        if vid in seen or vid not in found:continue
+        seen.add(vid)
+        s=v.get('snippet',{});seconds=duration_seconds(v.get('contentDetails',{}).get('duration'))
+        if v.get('status',{}).get('privacyStatus')!='public':continue
+        if s.get('liveBroadcastContent','none')!='none':continue
+        if seconds is None or not c['min_seconds']<=seconds<=c['max_seconds']:continue
         eligible.append((v,seconds))
     subscribers={}
-    channel_ids=list(dict.fromkeys(v.get("snippet",{}).get("channelId") for v,_ in eligible if v.get("snippet",{}).get("channelId")))
+    channel_ids=list(dict.fromkeys(v.get('snippet',{}).get('channelId') for v,_ in eligible if v.get('snippet',{}).get('channelId')))
     for batch in chunks(channel_ids):
-        for ch in api.get("channels",part="statistics",id=",".join(batch)).get("items",[]):
-            stats=ch.get("statistics",{})
-            subscribers[ch["id"]]=None if stats.get("hiddenSubscriberCount") else number(stats.get("subscriberCount"))
+        for ch in api.get('channels',part='statistics',id=','.join(batch)).get('items',[]):
+            stats=ch.get('statistics',{})
+            subscribers[ch['id']]=None if stats.get('hiddenSubscriberCount') else number(stats.get('subscriberCount'))
     result=[]
     for v,seconds in eligible:
-        s=v.get("snippet",{});st=v.get("statistics",{});cid=s.get("channelId","")
-        thumbs=s.get("thumbnails",{});thumb=next((thumbs[k].get("url","") for k in ["high","medium","default"] if k in thumbs),"")
-        if not re.match(r"^https://(?:i\.ytimg\.com|img\.youtube\.com)/",thumb):thumb=""
-        vid=v.get("id","")
+        s=v.get('snippet',{});st=v.get('statistics',{});cid=s.get('channelId','')
+        thumbs=s.get('thumbnails',{});thumb=next((thumbs[k].get('url','') for k in ['high','medium','default'] if k in thumbs),'')
+        if not re.match(r'^https://(?:i\.ytimg\.com|img\.youtube\.com)/',thumb):thumb=''
+        vid=v.get('id','')
         if not ID.fullmatch(vid):continue
-        lang=infer_language(s)
-        evidence=screen_evidence(v)
-        result.append({"language":lang["code"],"languageBasis":lang["basis"],"audioLanguage":lang["audio"],
-                       "declaredLanguage":lang["declared"],"languageSource":lang["source"],
-                       "titleLanguage":lang["titleCode"],"titleLanguageBasis":lang["titleBasis"],
-                       "screenKind":evidence["kind"],"screenReason":evidence["reason"],
-                       "metadataVersion":"1.2.1","id":vid,"title":s.get("title",""),"channelTitle":s.get("channelTitle",""),"channelId":cid,
-                       "views":number(st.get("viewCount")),"subscribers":subscribers.get(cid),
-                       "publishedAt":s.get("publishedAt"),"fetchedAt":stamp,"durationSeconds":seconds,
-                       "thumbnail":thumb,"originalStatus":"unverified","source":" / ".join(found.get(vid,[])[:2])})
-    result.sort(key=lambda x:x["views"] if x["views"] is not None else -1,reverse=True)
-    result=result[:c["max_videos"]]
-    if not result:warnings.append("길이·공개 조건에 맞는 후보가 없습니다. 검색어를 넓혀 주세요.")
-    return {"schema":1,"mode":"live","generatedAt":stamp,"collectorVersion":"1.2.1","reviewPolicy":"manual-original-country-v1","warnings":warnings,"videos":result,"searchQueries":query_names,"searchLanguages":languages}
+        lang=infer_language(s);evidence=screen_evidence(v)
+        result.append({'language':lang['code'],'languageBasis':lang['basis'],'audioLanguage':lang['audio'],
+                       'declaredLanguage':lang['declared'],'languageSource':lang['source'],
+                       'titleLanguage':lang['titleCode'],'titleLanguageBasis':lang['titleBasis'],
+                       'screenKind':evidence['kind'],'screenReason':evidence['reason'],
+                       'metadataVersion':'1.3','id':vid,'title':s.get('title',''),'channelTitle':s.get('channelTitle',''),'channelId':cid,
+                       'views':number(st.get('viewCount')),'subscribers':subscribers.get(cid),
+                       'publishedAt':s.get('publishedAt'),'fetchedAt':stamp,'durationSeconds':seconds,
+                       'thumbnail':thumb,'originalStatus':'unverified','source':' / '.join(found.get(vid,[])[:2]),
+                       'discoveryRoutes':routes.get(vid,[]),'shortsHint':shorts_hint(s)})
+    eligible_count=len(result)
+    result=diverse_snapshot(result,c['max_videos'])
+    if not result:warnings.append('길이·공개 조건에 맞는 후보가 없습니다.')
+    base['warnings']=warnings
+    base['collectionSummary']={'uniqueFound':len(found),'eligibleBeforeCap':eligible_count,'kept':len(result),
+        'snapshotLimit':c['max_videos'],'routeCounts':{lane:sum(lane in v['discoveryRoutes'] for v in result) for lane in LABELS},
+        'note':'경로별 수는 중복 포함. 조회수·감동 점수가 아니라 수집 출처를 설명합니다.'}
+    return {**base,'videos':result}
 
 def main():
     parser=argparse.ArgumentParser()
@@ -270,6 +321,8 @@ def main():
         api=YouTube(os.environ.get("YOUTUBE_API_KEY", "").strip())
         data=collect(api,c,rotation)
         print(f"LIVE: {len(data['videos'])}개 수집. API 요청 횟수: {json.dumps(api.calls)}")
+        print("수집 경로: " + ", ".join(p["lane"] for p in data.get("discoveryPlan",[])))
+        print("참고 출처 채널: " + str(len(data.get("referenceSummary",{}).get("channels",[]))))
         print("검색 언어: " + ", ".join(data.get("searchLanguages", [])))
         evidence_counts={kind:sum(v.get("screenKind")==kind for v in data['videos']) for kind in ['film','series','unknown','non_screen']}
         small=sum(isinstance(v.get('subscribers'),int) and v['subscribers']<=10000 for v in data['videos'])
@@ -278,6 +331,7 @@ def main():
     encoded=json.dumps(data,ensure_ascii=False,indent=2)
     secret=os.environ.get("YOUTUBE_API_KEY","")
     if secret and secret in encoded:raise CollectionError("보안 검사 실패: 공개 출력에 비밀키가 포함되어 배포를 중단했습니다.")
+    target.parent.mkdir(parents=True,exist_ok=True)
     tmp=target.with_suffix(".tmp")
     tmp.write_text(encoded+"\n",encoding="utf-8");tmp.replace(target)
 

@@ -1,0 +1,591 @@
+{
+  "schema": 1,
+  "enabled": true,
+  "note": "예시는 참고일 뿐이다. 검색 경로는 감동 판정이나 성공 점수가 아니다. familiar/expand/work/open 네 경로를 함께 탐색한다. 제작 후보의 구독자·언어·길이 조건과 원작 확인은 그대로 적용한다. 현재 브라우저 좋아요는 자동으로 이 파일을 변경하지 않는다.",
+  "reference_video_ids": [
+    "bTL6azhffzA",
+    "sHEUBff9pEg",
+    "z_clVFgQEbE",
+    "je_xDVmXpvQ"
+  ],
+  "reference_channel_limit": 4,
+  "reference_pages_per_channel": 1,
+  "profiles": [
+    {
+      "lane": "familiar",
+      "label": "뜻밖의 친절",
+      "language": "en",
+      "q": "movie scene unexpected kindness shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "뜻밖의 친절",
+      "language": "ja",
+      "q": "映画 シーン 思いがけない 優しさ shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "뜻밖의 친절",
+      "language": "es",
+      "q": "escena película bondad inesperada shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "뜻밖의 친절",
+      "language": "pt",
+      "q": "cena filme gentileza inesperada shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "뜻밖의 친절",
+      "language": "fr",
+      "q": "scène film gentillesse inattendue shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "뜻밖의 친절",
+      "language": "de",
+      "q": "Filmszene unerwartete Freundlichkeit shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "뜻밖의 친절",
+      "language": "it",
+      "q": "scena film gentilezza inaspettata shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "뜻밖의 친절",
+      "language": "zh-Hans",
+      "q": "电影片段 善意 shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "관계 회복",
+      "language": "en",
+      "q": "movie scene family reconciliation shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "관계 회복",
+      "language": "ja",
+      "q": "映画 シーン 家族 和解 shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "관계 회복",
+      "language": "es",
+      "q": "escena película reconciliación familiar shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "관계 회복",
+      "language": "pt",
+      "q": "cena filme reconciliação família shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "관계 회복",
+      "language": "fr",
+      "q": "scène film réconciliation famille shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "관계 회복",
+      "language": "de",
+      "q": "Filmszene Versöhnung Familie shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "관계 회복",
+      "language": "it",
+      "q": "scena film riconciliazione famiglia shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "관계 회복",
+      "language": "zh-Hans",
+      "q": "电影片段 家人 和解 shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "서로를 알아보는 우정",
+      "language": "en",
+      "q": "film scene unlikely friendship shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "서로를 알아보는 우정",
+      "language": "ja",
+      "q": "映画 シーン 友情 世代 shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "서로를 알아보는 우정",
+      "language": "es",
+      "q": "escena película amistad inesperada shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "서로를 알아보는 우정",
+      "language": "pt",
+      "q": "cena filme amizade improvável shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "서로를 알아보는 우정",
+      "language": "fr",
+      "q": "scène film amitié improbable shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "서로를 알아보는 우정",
+      "language": "de",
+      "q": "Filmszene ungewöhnliche Freundschaft shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "서로를 알아보는 우정",
+      "language": "it",
+      "q": "scena film amicizia inaspettata shorts -trailer -gameplay"
+    },
+    {
+      "lane": "familiar",
+      "label": "서로를 알아보는 우정",
+      "language": "zh-Hans",
+      "q": "电影片段 忘年交 shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "용서와 두 번째 기회",
+      "language": "en",
+      "q": "movie scene forgiveness second chance shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "용서와 두 번째 기회",
+      "language": "ja",
+      "q": "映画 シーン 許し 再出発 shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "용서와 두 번째 기회",
+      "language": "es",
+      "q": "escena película perdón segunda oportunidad shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "용서와 두 번째 기회",
+      "language": "pt",
+      "q": "cena filme perdão segunda chance shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "용서와 두 번째 기회",
+      "language": "fr",
+      "q": "scène film pardon seconde chance shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "용서와 두 번째 기회",
+      "language": "de",
+      "q": "Filmszene Vergebung zweite Chance shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "용서와 두 번째 기회",
+      "language": "it",
+      "q": "scena film perdono seconda possibilità shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "용서와 두 번째 기회",
+      "language": "zh-Hans",
+      "q": "电影片段 原谅 重新开始 shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "존엄과 인정",
+      "language": "en",
+      "q": "film scene respect standing up for someone shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "존엄과 인정",
+      "language": "ja",
+      "q": "映画 シーン 尊厳 認められる shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "존엄과 인정",
+      "language": "es",
+      "q": "escena película respeto dignidad shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "존엄과 인정",
+      "language": "pt",
+      "q": "cena filme respeito reconhecimento shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "존엄과 인정",
+      "language": "fr",
+      "q": "scène film respect dignité shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "존엄과 인정",
+      "language": "de",
+      "q": "Filmszene Respekt Anerkennung shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "존엄과 인정",
+      "language": "it",
+      "q": "scena film rispetto dignità shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "존엄과 인정",
+      "language": "zh-Hans",
+      "q": "电影片段 尊重 认可 shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "유머 속 따뜻함",
+      "language": "en",
+      "q": "heartwarming funny movie scene shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "유머 속 따뜻함",
+      "language": "ja",
+      "q": "映画 シーン 笑い 心温まる shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "유머 속 따뜻함",
+      "language": "es",
+      "q": "escena película divertida conmovedora shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "유머 속 따뜻함",
+      "language": "pt",
+      "q": "cena filme engraçada emocionante shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "유머 속 따뜻함",
+      "language": "fr",
+      "q": "scène film drôle touchante shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "유머 속 따뜻함",
+      "language": "de",
+      "q": "Filmszene lustig herzerwärmend shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "유머 속 따뜻함",
+      "language": "it",
+      "q": "scena film divertente commovente shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "유머 속 따뜻함",
+      "language": "zh-Hans",
+      "q": "电影片段 搞笑 温暖 shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "노력 끝의 인정",
+      "language": "en",
+      "q": "movie scene finally recognized achievement shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "노력 끝의 인정",
+      "language": "ja",
+      "q": "映画 シーン 努力 報われる shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "노력 끝의 인정",
+      "language": "es",
+      "q": "escena película esfuerzo reconocimiento shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "노력 끝의 인정",
+      "language": "pt",
+      "q": "cena filme esforço reconhecimento shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "노력 끝의 인정",
+      "language": "fr",
+      "q": "scène film effort reconnaissance shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "노력 끝의 인정",
+      "language": "de",
+      "q": "Filmszene Leistung Anerkennung shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "노력 끝의 인정",
+      "language": "it",
+      "q": "scena film impegno riconoscimento shorts -trailer -gameplay"
+    },
+    {
+      "lane": "expand",
+      "label": "노력 끝의 인정",
+      "language": "zh-Hans",
+      "q": "电影片段 努力 被认可 shorts -trailer -gameplay"
+    },
+    {
+      "lane": "open",
+      "label": "새 작품과 새로운 감동결",
+      "language": "en",
+      "q": "independent film moving scene shorts -trailer -gameplay"
+    },
+    {
+      "lane": "open",
+      "label": "새 작품과 새로운 감동결",
+      "language": "ja",
+      "q": "映画 シーン 心に残る shorts -trailer -gameplay"
+    },
+    {
+      "lane": "open",
+      "label": "새 작품과 새로운 감동결",
+      "language": "es",
+      "q": "escena película emotiva shorts -trailer -gameplay"
+    },
+    {
+      "lane": "open",
+      "label": "새 작품과 새로운 감동결",
+      "language": "pt",
+      "q": "cena filme tocante shorts -trailer -gameplay"
+    },
+    {
+      "lane": "open",
+      "label": "새 작품과 새로운 감동결",
+      "language": "fr",
+      "q": "scène film émouvante shorts -trailer -gameplay"
+    },
+    {
+      "lane": "open",
+      "label": "새 작품과 새로운 감동결",
+      "language": "de",
+      "q": "Filmszene bewegender Moment shorts -trailer -gameplay"
+    },
+    {
+      "lane": "open",
+      "label": "새 작품과 새로운 감동결",
+      "language": "it",
+      "q": "scena film emozionante shorts -trailer -gameplay"
+    },
+    {
+      "lane": "open",
+      "label": "새 작품과 새로운 감동결",
+      "language": "zh-Hans",
+      "q": "电影片段 感人 shorts -trailer -gameplay"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · A Friend of Dorothy",
+      "language": "en",
+      "q": "\"A Friend of Dorothy\" scene shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · A Friend of Dorothy",
+      "language": "ja",
+      "q": "\"A Friend of Dorothy\" シーン shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · A Friend of Dorothy",
+      "language": "es",
+      "q": "\"A Friend of Dorothy\" escena shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · A Friend of Dorothy",
+      "language": "pt",
+      "q": "\"A Friend of Dorothy\" cena shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · A Friend of Dorothy",
+      "language": "fr",
+      "q": "\"A Friend of Dorothy\" scène shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · A Friend of Dorothy",
+      "language": "de",
+      "q": "\"A Friend of Dorothy\" Szene shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · A Friend of Dorothy",
+      "language": "it",
+      "q": "\"A Friend of Dorothy\" scena shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · A Friend of Dorothy",
+      "language": "zh-Hans",
+      "q": "\"A Friend of Dorothy\" 片段 shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Lean on Me",
+      "language": "en",
+      "q": "\"Lean on Me\" scene shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Lean on Me",
+      "language": "ja",
+      "q": "\"Lean on Me\" シーン shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Lean on Me",
+      "language": "es",
+      "q": "\"Lean on Me\" escena shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Lean on Me",
+      "language": "pt",
+      "q": "\"Lean on Me\" cena shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Lean on Me",
+      "language": "fr",
+      "q": "\"Lean on Me\" scène shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Lean on Me",
+      "language": "de",
+      "q": "\"Lean on Me\" Szene shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Lean on Me",
+      "language": "it",
+      "q": "\"Lean on Me\" scena shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Lean on Me",
+      "language": "zh-Hans",
+      "q": "\"Lean on Me\" 片段 shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Hillbilly Elegy",
+      "language": "en",
+      "q": "\"Hillbilly Elegy\" scene shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Hillbilly Elegy",
+      "language": "ja",
+      "q": "\"Hillbilly Elegy\" シーン shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Hillbilly Elegy",
+      "language": "es",
+      "q": "\"Hillbilly Elegy\" escena shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Hillbilly Elegy",
+      "language": "pt",
+      "q": "\"Hillbilly Elegy\" cena shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Hillbilly Elegy",
+      "language": "fr",
+      "q": "\"Hillbilly Elegy\" scène shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Hillbilly Elegy",
+      "language": "de",
+      "q": "\"Hillbilly Elegy\" Szene shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Hillbilly Elegy",
+      "language": "it",
+      "q": "\"Hillbilly Elegy\" scena shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Hillbilly Elegy",
+      "language": "zh-Hans",
+      "q": "\"Hillbilly Elegy\" 片段 shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Stick golf",
+      "language": "en",
+      "q": "\"Stick\" golf scene shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Stick golf",
+      "language": "ja",
+      "q": "\"Stick\" golf シーン shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Stick golf",
+      "language": "es",
+      "q": "\"Stick\" golf escena shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Stick golf",
+      "language": "pt",
+      "q": "\"Stick\" golf cena shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Stick golf",
+      "language": "fr",
+      "q": "\"Stick\" golf scène shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Stick golf",
+      "language": "de",
+      "q": "\"Stick\" golf Szene shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Stick golf",
+      "language": "it",
+      "q": "\"Stick\" golf scena shorts -trailer"
+    },
+    {
+      "lane": "work",
+      "label": "참고 작품 탐색 · Stick golf",
+      "language": "zh-Hans",
+      "q": "\"Stick\" golf 片段 shorts -trailer"
+    }
+  ]
+}

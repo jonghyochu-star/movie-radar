@@ -25,7 +25,9 @@ class FakeAPI:
         if endpoint=='channels':return {'items':[{'id':CID,'statistics':{'subscriberCount':'2000','hiddenSubscriberCount':False}},{'id':CID2,'statistics':{'hiddenSubscriberCount':True}}]}
         raise AssertionError(endpoint)
 class TestCollect(unittest.TestCase):
-    def config(self):return m.load_config(ROOT/'config.json')
+    def config(self):
+        # Legacy behavior regression; discovery routes have separate tests.
+        c=m.load_config(ROOT/'config.json');c.pop('discovery',None);return c
     def test_config_valid(self):self.assertEqual(self.config()['queries_per_run'],4)
     def test_duration(self):
         for raw,val in [('PT1M30S',90),('PT1H2M3S',3723),('PT0S',0),('P1D',None),('',None),('PT',None)]:self.assertEqual(m.duration_seconds(raw),val)
@@ -125,7 +127,7 @@ class TestCollect(unittest.TestCase):
                         if v['id']==HIDDEN:v['snippet']['defaultAudioLanguage']='hi'
                 return data
         out=m.collect(Mixed(),self.config())
-        self.assertEqual(out['collectorVersion'],'1.2.1')
+        self.assertEqual(out['collectorVersion'],'1.3')
         missing=next(v for v in out['videos'] if v['id']==GOOD)
         audio=next(v for v in out['videos'] if v['id']==HIDDEN)
         self.assertEqual((missing['language'],missing['declaredLanguage'],missing['languageSource']),('unknown','en','unknown'))

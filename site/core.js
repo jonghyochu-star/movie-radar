@@ -9,7 +9,7 @@
   const validId = id => typeof id === 'string' && /^(?:[A-Za-z0-9_-]{11}|demo-[1-9][0-9]*)$/.test(id);
   const blank = () => ({schema:1, records:Object.create(null)});
   function record(id) {
-    return {id,rating:null,stage:null,origin:'unknown',media:'unknown',memo:'',label:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),cache:null};
+    return {id,rating:null,stage:null,origin:'unknown',media:'unknown',format:'unknown',memo:'',label:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),cache:null};
   }
   function normalize(raw, now=Date.now()) {
     if (!raw || raw.schema !== 1 || typeof raw.records !== 'object' || !raw.records || Array.isArray(raw.records)) throw Error('Movie Radar 백업 형식이 아닙니다.');
@@ -22,6 +22,7 @@
       x.stage=['candidate','done'].includes(r.stage)?r.stage:null;
       x.origin=originOf(r);
       x.media=mediaOf(r);
+      x.format=formatOf(r);
       x.memo=String(r.memo||'').slice(0,5000);x.label=String(r.label||'').slice(0,150);
       for(const k of ['createdAt','updatedAt']) if(typeof r[k]==='string' && Number.isFinite(Date.parse(r[k]))) x[k]=r[k];
       const t=Date.parse(r.cache?.fetchedAt);
@@ -37,17 +38,22 @@
       case 'like': r.rating='like'; break;
       case 'dislike': r.rating='dislike'; break;
       case 'candidate':
+        if(formatOf(r)==='not_short') throw Error('일반 영상으로 표시되어 있습니다. 쇼츠 여부를 먼저 확인해 주세요.');
         if (mediaOf(r)==='not_screen' || (!isSample(video) && originOf(r) !== 'non_korean')) throw Error('원작이 한국 외 작품인지 먼저 확인해 주세요.');
         r.stage='candidate'; break;
       case 'uncandidate': r.stage=null; break;
       case 'done': r.stage='done'; break;
       case 'reopen':
+        if(formatOf(r)==='not_short') throw Error('일반 영상으로 표시되어 있습니다. 쇼츠 여부를 먼저 확인해 주세요.');
         if (mediaOf(r)==='not_screen' || (!isSample(video) && originOf(r) !== 'non_korean')) throw Error('원작이 한국 외 작품인지 먼저 확인해 주세요.');
         r.stage='candidate'; break;
       case 'unrate': r.rating=null; break;
       case 'origin_foreign': r.origin='non_korean'; break;
       case 'origin_korean': r.origin='korean'; break;
       case 'origin_reset': r.origin='unknown'; break;
+      case 'format_yes': r.format='shorts'; break;
+      case 'format_no': r.format='not_short'; break;
+      case 'format_reset': r.format='unknown'; break;
       case 'media_no': r.media='not_screen'; break;
       case 'media_yes': r.media='screen'; break;
       case 'media_reset': r.media='unknown'; break;
@@ -61,8 +67,8 @@
     return r && ['non_korean','korean'].includes(r.origin) ? r.origin : 'unknown';
   }
   function isSample(v) { return typeof v?.id==='string' && /^demo-/.test(v.id); }
-  function ready(v,r) { return mediaOf(r)!=='not_screen' && (isSample(v) || originOf(r)==='non_korean'); }
-  function needsReview(v,r={}) { return mediaOf(r)!=='not_screen' && !isSample(v) && originOf(r)==='unknown' && r.rating!=='dislike' && r.stage!=='done'; }
+  function ready(v,r) { return formatOf(r)!=='not_short' && mediaOf(r)!=='not_screen' && (isSample(v) || originOf(r)==='non_korean'); }
+  function needsReview(v,r={}) { return formatOf(r)!=='not_short' && mediaOf(r)!=='not_screen' && !isSample(v) && originOf(r)==='unknown' && r.rating!=='dislike' && r.stage!=='done'; }
   function ratio(v) {
     const sub=v.subscribers, views=v.views;
     return typeof sub==='number' && sub>0 && typeof views==='number'?views/sub:null;
@@ -113,7 +119,7 @@
     return {code,source,basis,badge,audio,declared};
   }
   const preferredLanguages=()=>['en','ja','es','pt','fr','de','it','zh'];
-  const defaultFilters=()=>({schema:1,maxSubscribers:10000,minSeconds:0,maxSeconds:180,minViews:100000,content:'screen',languages:preferredLanguages(),includeUnknownLanguage:false,balance:true});
+  const defaultFilters=()=>({schema:1,maxSubscribers:10000,minSeconds:0,maxSeconds:180,minViews:100000,content:'screen',languages:preferredLanguages(),includeUnknownLanguage:false,balance:true,route:'all',mixDiscovery:true,shorts:'any'});
   function normalizeFilters(raw={}) {
     const f=defaultFilters(), numberKeys={maxSubscribers:[0,1000000000],minSeconds:[0,180],maxSeconds:[0,180],minViews:[0,100000000000]};
     for(const [k,[lo,hi]] of Object.entries(numberKeys)) if(Number.isInteger(raw[k])&&raw[k]>=lo&&raw[k]<=hi)f[k]=raw[k];
@@ -121,7 +127,9 @@
     if(f.minSeconds>f.maxSeconds){f.minSeconds=0;f.maxSeconds=180;}
     if(['screen','film','all'].includes(raw.content))f.content=raw.content;
     if(Array.isArray(raw.languages))f.languages=[...new Set(raw.languages.filter(x=>typeof x==='string'&&x!=='unknown'&&Object.hasOwn(LANGUAGE_LABELS,x)))];
-    for(const k of ['balance','includeUnknownLanguage'])if(typeof raw[k]==='boolean')f[k]=raw[k];
+    if(raw.route==='all'||Object.hasOwn(ROUTE_LABELS,raw.route))f.route=raw.route;
+    if(['any','hinted','confirmed'].includes(raw.shorts))f.shorts=raw.shorts;
+    for(const k of ['balance','includeUnknownLanguage','mixDiscovery'])if(typeof raw[k]==='boolean')f[k]=raw[k];
     return f;
   }
   function screenKind(v,r={}) {
@@ -132,7 +140,9 @@
   }
   function filterReasons(v,r,f) {
     if(isSample(v))return []; // fictitious demo items are explicitly exempt from source checks
-    const reasons=[],kind=screenKind(v,r);
+    const reasons=[],kind=screenKind(v,r),format=shortsInfo(v,r).status;
+    if(f.route&&f.route!=='all'&&!routesOf(v).includes(f.route))reasons.push('route');
+    if(format==='not_short'||(f.shorts==='hinted'&&!['hint','confirmed'].includes(format))||(f.shorts==='confirmed'&&format!=='confirmed'))reasons.push('format');
     if(f.content==='screen'&&!['film','series','user_screen'].includes(kind))reasons.push('content');
     if(f.content==='film'&&kind!=='film')reasons.push('content');
     if(f.maxSubscribers>0&&!(Number.isFinite(v.subscribers)&&v.subscribers>=0&&v.subscribers<=f.maxSubscribers))reasons.push('subscribers');
@@ -145,7 +155,7 @@
   function matchesFilters(v,r,f) { return filterReasons(v,r,f).length===0; }
   function filterCounts(items,records,f) {
     const result={total:items.length};let remaining=items;
-    for(const reason of ['content','subscribers','language','duration','views']){
+    for(const reason of ['content','subscribers','language','duration','views','route','format']){
       remaining=remaining.filter(v=>!filterReasons(v,records[v.id]||{},f).includes(reason));result[reason]=remaining.length;
     }
     return result;
@@ -164,5 +174,27 @@
     const queues=order.map(lang=>{const channels=new Map();for(const v of languages.get(lang)){const id=v.channelId||v.id;if(!channels.has(id))channels.set(id,[]);channels.get(id).push(v);}return roundRobin([...channels.values()]);});
     return roundRobin(queues);
   }
-  return {MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
+
+  const ROUTE_LABELS=Object.freeze({familiar:'참고 결에서 출발',expand:'다른 감동 이야기 탐색',work:'참고 작품에서 출발',open:'새로운 소재 탐색',source:'참고 채널에서 발견',direct:'직접 지정',legacy:'기존 검색'});
+  function formatOf(r={}) {return ['shorts','not_short'].includes(r?.format)?r.format:'unknown';}
+  function shortsInfo(v={},r={}) {
+    const f=formatOf(r);
+    if(f==='shorts')return {status:'confirmed',label:'쇼츠 · 내가 확인',reason:'사용자가 원본에서 확인한 기록입니다. 자동 판정이 아닙니다.'};
+    if(f==='not_short')return {status:'not_short',label:'일반 영상 · 내가 제외',reason:'취향 평가와 별도로 제외했습니다. 확인 취소로 복구할 수 있습니다.'};
+    if(v.shortsHint===true)return {status:'hint',label:'쇼츠 표기 단서 · 미확인',reason:'제목/태그의 Shorts 표기만 있습니다. 길이·태그로 실제 Shorts 여부를 확정하지 않습니다.'};
+    return {status:'unknown',label:'쇼츠 여부 미확인',reason:'3분 이하라는 이유만으로 Shorts로 확정하지 않았습니다.'};
+  }
+  function routesOf(v={}) {const a=Array.isArray(v.discoveryRoutes)?v.discoveryRoutes.filter(x=>typeof x==='string'&&Object.hasOwn(ROUTE_LABELS,x)):[];return a.length?[...new Set(a)]:['legacy'];}
+  function mixRoutes(items,languageOrder=preferredLanguages(),balanceLanguage=false) {
+    const groups=new Map();
+    for(const v of items){
+      const options=routesOf(v);
+      // An item found by several routes appears once in the least populated lane.
+      const route=options.reduce((a,b)=>(groups.get(a)?.length||0)<=(groups.get(b)?.length||0)?a:b);
+      if(!groups.has(route))groups.set(route,[]);groups.get(route).push(v);
+    }
+    return roundRobin([...groups.values()].map(g=>balanceLanguage?balanceVideos(g,languageOrder):g));
+  }
+
+  return {formatOf, shortsInfo, routesOf, ROUTE_LABELS, mixRoutes, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
 });
