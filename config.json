@@ -1,68 +1,36 @@
 {
   "queries": [
     {
-      "q": "movie scene shorts",
+      "q": "movie scene -prank -vlog -gameplay -trailer -lyrics",
       "language": "en"
     },
     {
-      "q": "escena película shorts",
-      "language": "es"
-    },
-    {
-      "q": "cena de filme shorts",
-      "language": "pt"
-    },
-    {
-      "q": "映画 ワンシーン shorts",
+      "q": "映画 ワンシーン -予告 -ゲーム",
       "language": "ja"
     },
     {
-      "q": "scène de film shorts",
+      "q": "escena de película -broma -tráiler",
+      "language": "es"
+    },
+    {
+      "q": "cena de filme -pegadinha -trailer",
+      "language": "pt"
+    },
+    {
+      "q": "scène de film -bande-annonce",
       "language": "fr"
     },
     {
-      "q": "Filmszene shorts",
+      "q": "Filmszene -Trailer -Gameplay",
       "language": "de"
     },
     {
-      "q": "फिल्म का दृश्य shorts",
-      "language": "hi"
-    },
-    {
-      "q": "adegan film shorts",
-      "language": "id"
-    },
-    {
-      "q": "сцена из фильма shorts",
-      "language": "ru"
-    },
-    {
-      "q": "ฉากหนัง shorts",
-      "language": "th"
-    },
-    {
-      "q": "مشهد من فيلم shorts",
-      "language": "ar"
-    },
-    {
-      "q": "film sahnesi shorts",
-      "language": "tr"
-    },
-    {
-      "q": "电影片段 shorts",
-      "language": "zh-Hans"
-    },
-    {
-      "q": "電影片段 shorts",
-      "language": "zh-Hant"
-    },
-    {
-      "q": "scena film shorts",
+      "q": "scena di film -trailer",
       "language": "it"
     },
     {
-      "q": "cảnh phim shorts",
-      "language": "vi"
+      "q": "电影片段 -预告 -游戏",
+      "language": "zh-Hans"
     }
   ],
   "queries_per_run": 4,
@@ -70,10 +38,14 @@
   "archive_days": 0,
   "results_per_search": 50,
   "max_videos": 400,
-  "min_seconds": 10,
+  "min_seconds": 0,
   "max_seconds": 180,
   "relevance_language": "",
   "region_code": "",
   "channel_ids": [],
-  "video_ids": []
+  "video_ids": [],
+  "anchor_language": "en",
+  "recent_order": "viewCount",
+  "archive_order": "relevance",
+  "recent_topic_id": "/m/02vxn"
 }

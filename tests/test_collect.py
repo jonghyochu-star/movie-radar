@@ -68,7 +68,7 @@ class TestCollect(unittest.TestCase):
         class Empty:
             def get(self,*a,**kw):return {'items':[]}
         r=m.collect(Empty(),self.config());self.assertEqual(r['videos'],[]);self.assertTrue(r['warnings'])
-    def test_all_profiles_rotate_in_four_runs(self):
+    def test_priority_profiles_rotate_with_anchor(self):
         c=self.config();seen=set()
         for rotation in range(4):
             api=FakeAPI();result=m.collect(api,c,rotation)
@@ -76,7 +76,12 @@ class TestCollect(unittest.TestCase):
             searches=[params for name,params in api.calls if name=='search']
             self.assertEqual(len(searches),8)
             self.assertTrue(all('regionCode' not in p for p in searches))
-        self.assertEqual(len(seen),16)
+            self.assertEqual(searches[0]['relevanceLanguage'],'en')
+            self.assertEqual(searches[0].get('topicId'),'/m/02vxn')
+            self.assertNotIn('topicId',searches[1])
+            self.assertEqual(searches[1]['order'],'relevance')
+        self.assertEqual(len(seen),8)
+        self.assertNotIn('hi',seen);self.assertNotIn('ar',seen)
         self.assertNotIn('ko',seen)
     def test_every_output_is_unverified_not_guessed(self):
         result=m.collect(FakeAPI(),self.config())

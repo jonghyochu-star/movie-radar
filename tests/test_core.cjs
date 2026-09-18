@@ -22,3 +22,35 @@ test('origin review included in metadata-free backup',()=>{const s=C.apply(C.bla
 test('origin decisions for one video do not label other clips',()=>{const s=C.apply(C.blank(),v,'origin_korean');const another={...v,id:'AbCdEfGhI02',title:'same film'};assert.equal(C.originOf(s.records[another.id]),'unknown');});
 test('samples can test candidate behavior without a real country decision',()=>{const demo={id:'demo-1'};const s=C.apply(C.apply(C.blank(),demo,'like'),demo,'candidate');assert.equal(s.records[demo.id].stage,'candidate');});
 test('disliked and done items do not clog pending review',()=>{assert.equal(C.needsReview(v,{rating:'dislike'}),false);assert.equal(C.needsReview(v,{stage:'done'}),false);assert.equal(C.needsReview(v,{rating:'like'}),true);});
+
+const fvideo={...v,durationSeconds:90,language:'en',screenKind:'film',views:100000,subscribers:5000};
+const defaults=()=>C.defaultFilters();
+test('default subscribers are 10000',()=>assert.equal(defaults().maxSubscribers,10000));
+test('5000 subscriber boundary inclusive',()=>{const f={...defaults(),maxSubscribers:5000};assert(C.matchesFilters(fvideo,{},f));assert(!C.matchesFilters({...fvideo,subscribers:5001},{},f));});
+test('10000 subscriber boundary inclusive',()=>{assert(C.matchesFilters({...fvideo,subscribers:10000},{},defaults()));assert(!C.matchesFilters({...fvideo,subscribers:10001},{},defaults()));});
+test('unknown subscriber not zero',()=>{for(const sub of [null,undefined,NaN,'4000'])assert(!C.matchesFilters({...fvideo,subscribers:sub},{},defaults()));});
+test('unknown subscriber allowed only without cap',()=>assert(C.matchesFilters({...fvideo,subscribers:null},{},{...defaults(),maxSubscribers:0})));
+test('zero subscribers valid but no ratio',()=>{assert(C.matchesFilters({...fvideo,subscribers:0},{},defaults()));assert.equal(C.ratio({...fvideo,subscribers:0}),null);});
+test('duration range inclusive and editable',()=>{const f={...defaults(),minSeconds:30,maxSeconds:90};for(const d of [30,90])assert(C.matchesFilters({...fvideo,durationSeconds:d},{},f));for(const d of [29,91,null])assert(!C.matchesFilters({...fvideo,durationSeconds:d},{},f));});
+test('minimum view boundary',()=>{assert(C.matchesFilters({...fvideo,views:100000},{},defaults()));assert(!C.matchesFilters({...fvideo,views:99999},{},defaults()));});
+test('default languages remain multilingual',()=>{assert(C.matchesFilters({...fvideo,language:'es'},{},defaults()));assert(C.matchesFilters({...fvideo,language:'ja'},{},defaults()));});
+test('Hindi Arabic not shown by default including scripts',()=>{for(const lang of ['hi','ar','ar-script','indic-script'])assert(!C.matchesFilters({...fvideo,language:lang},{},defaults()));});
+test('explicitly enabling languages works',()=>{const f={...defaults(),languages:['ar','hi']};assert(C.matchesFilters({...fvideo,language:'ar'},{},f));assert(C.matchesFilters({...fvideo,language:'hi'},{},f));});
+test('unknown language only when requested',()=>{assert(!C.matchesFilters({...fvideo,language:'unknown'},{},defaults()));assert(C.matchesFilters({...fvideo,language:'unknown'},{},{...defaults(),includeUnknownLanguage:true}));});
+test('selecting no languages gives zero not all',()=>assert(!C.matchesFilters(fvideo,{},{...defaults(),languages:[]})));
+test('default screen clues exclude irrelevant and unknown',()=>{for(const k of ['unknown','non_screen'])assert(!C.matchesFilters({...fvideo,screenKind:k},{},defaults()));});
+test('series included by default separate movie only',()=>{assert(C.matchesFilters({...fvideo,screenKind:'series'},{},defaults()));assert(!C.matchesFilters({...fvideo,screenKind:'series'},{},{...defaults(),content:'film'}));});
+test('show all content allows manual review',()=>assert(C.matchesFilters({...fvideo,screenKind:'unknown'},{},{...defaults(),content:'all'})));
+test('manual movie confirmation overrides weak metadata',()=>assert(C.matchesFilters({...fvideo,screenKind:'unknown'},{media:'screen'},defaults())));
+test('manual nonfilm mark is separate from taste and origin',()=>{let s=C.apply(C.apply(C.blank(),v,'origin_foreign'),v,'like');s.records[v.id].memo='keep';s=C.apply(s,v,'media_no');const r=s.records[v.id];assert.equal(r.rating,'like');assert.equal(r.memo,'keep');assert.equal(r.origin,'non_korean');assert(!C.ready(v,r));assert(!C.needsReview(v,r));assert.throws(()=>C.apply(s,v,'candidate'));});
+test('manual nonfilm reset restores eligibility without taste mutation',()=>{let s=C.apply(C.apply(C.blank(),v,'origin_foreign'),v,'media_no');s=C.apply(s,v,'media_reset');assert(C.ready(v,s.records[v.id]));assert.equal(s.records[v.id].rating,null);});
+test('media confirmation does not confirm original country',()=>{const s=C.apply(C.blank(),v,'media_yes');assert.equal(s.records[v.id].origin,'unknown');assert(!C.ready(v,s.records[v.id]));});
+test('v11 migrations preserve candidates notes',()=>{const r={schema:1,records:{[v.id]:{rating:'like',origin:'non_korean',stage:'candidate',memo:'keep'}}};const x=C.normalize(r).records[v.id];assert.equal(x.media,'unknown');assert.equal(x.stage,'candidate');assert.equal(x.memo,'keep');assert(C.ready(v,x));});
+test('backup includes media no metadata',()=>{const data=C.exportData(C.apply(C.blank(),v,'media_no'));assert.equal(data.records[v.id].media,'not_screen');assert.equal(data.records[v.id].cache,undefined);});
+test('filter preferences sanitize',()=>{const f=C.normalizeFilters({maxSubscribers:NaN,minSeconds:180,maxSeconds:10,languages:['xx','en','en','__proto__'],balance:'yes'});assert.equal(f.maxSubscribers,10000);assert.equal(f.minSeconds,0);assert.equal(f.maxSeconds,180);assert.deepEqual(f.languages,['en']);assert.equal(f.balance,true);});
+test('funnel shows which restriction causes zero',()=>{const items=[fvideo,{...fvideo,id:'AbCdEfGhI02',subscribers:20000},{...fvideo,id:'AbCdEfGhI03',language:'hi'},{...fvideo,id:'AbCdEfGhI04',screenKind:'unknown'}];const n=C.filterCounts(items,{},defaults());assert.deepEqual(n,{total:4,content:3,subscribers:2,language:1,duration:1,views:1});});
+test('language balancing interleaves, does not lose or duplicate',()=>{const items=[{id:'1',language:'en',channelId:'a'},{id:'2',language:'en',channelId:'a'},{id:'3',language:'en',channelId:'b'},{id:'4',language:'ja',channelId:'c'},{id:'5',language:'ja',channelId:'c'}];const result=C.balanceVideos(items,['en','ja']);assert.deepEqual(result.map(v=>v.id),['1','4','3','5','2']);assert.equal(new Set(result.map(v=>v.id)).size,items.length);});
+test('language balancing handles empty, unknown, missing channel',()=>{assert.deepEqual(C.balanceVideos([]),[]);const items=[{id:'1'},{id:'2',language:'ar'}];assert.equal(C.balanceVideos(items).length,2);});
+test('display filters do not mutate records',()=>{const s=C.apply(C.blank(),v,'like');const before=JSON.stringify(s);C.matchesFilters(fvideo,s.records[v.id],defaults());C.filterCounts([fvideo],s.records,defaults());assert.equal(JSON.stringify(s),before);});
+
+test('movie-only does not turn confirmed TV into film',()=>{assert(!C.matchesFilters({...fvideo,screenKind:'series'},{origin:'non_korean'}, {...defaults(),content:'film'}));});

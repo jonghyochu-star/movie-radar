@@ -17,6 +17,12 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
+# Also works under importlib-based local/unit tests.
+_SCRIPT_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
+from screen_rules import infer_language, screen_evidence
+
 CHANNEL = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
 
 class CollectionError(Exception):
@@ -97,6 +103,16 @@ def load_config(path):
     region = c["region_code"]
     if not isinstance(region, str) or (region and not re.fullmatch(r"[A-Z]{2}", region)):
         raise CollectionError("region_code는 US 같은 국가 코드 또는 빈 문자열이어야 합니다.")
+    c["anchor_language"] = c.get("anchor_language", "")
+    if not isinstance(c["anchor_language"],str) or (c["anchor_language"] and not re.fullmatch(r"[a-z]{2}",c["anchor_language"])):
+        raise CollectionError("anchor_language 형식이 잘못되었습니다.")
+    for field,default in [("recent_order","viewCount"),("archive_order","relevance")]:
+        c[field]=c.get(field,default)
+        if c[field] not in {"viewCount","date","relevance"}:
+            raise CollectionError(f"{field}는 viewCount/date/relevance 중 하나여야 합니다.")
+    c["recent_topic_id"]=c.get("recent_topic_id", "")
+    if c["recent_topic_id"] not in {"", "/m/02vxn", "/m/0f2f9"}:
+        raise CollectionError("recent_topic_id 형식이 잘못되었습니다.")
     # Region is availability, NOT a film's production country. Never use it
     # or a channel's language/country to infer whether the original film is Korean.
     return c
@@ -157,7 +173,13 @@ def collect(api, c, rotation=0, now=None):
             if source not in found[vid]:found[vid].append(source)
     pool = c["queries"]
     count = min(c["queries_per_run"],len(pool))
-    selected = [pool[(rotation*count+i)%len(pool)] for i in range(count)] if pool else []
+    anchor=next((entry for entry in pool if entry["language"]==c.get("anchor_language") and entry["language"]),None)
+    if anchor:
+        others=[entry for entry in pool if entry is not anchor]
+        take=count-1
+        selected=[anchor]+([others[(rotation*take+i)%len(others)] for i in range(take)] if others else [])
+    else:
+        selected=[pool[(rotation*count+i)%len(pool)] for i in range(count)] if pool else []
     # Up to 8 search calls per run: recent + all-time for each selected query.
     # Rotate language-specific searches without multiplying the per-run request budget.
     # An API language preference is not a hard language or original-country filter.
@@ -166,8 +188,12 @@ def collect(api, c, rotation=0, now=None):
     for profile in selected:
         query = profile["q"]
         for recent in [True, False]:
-            params = dict(part="snippet",type="video",q=query,order="viewCount",videoDuration="short",
+            params = dict(part="snippet",type="video",q=query,order=c["recent_order"] if recent else c["archive_order"],videoDuration="short",
                           maxResults=c["results_per_search"], safeSearch="moderate")
+            # Only the recent pass uses the Movies topic: the other pass stays broad
+            # enough to discover under-classified movie clips and TV scenes.
+            if recent and c.get("recent_topic_id"):
+                params["topicId"]=c["recent_topic_id"]
             if profile["language"]:
                 params["relevanceLanguage"] = profile["language"]
             if c["region_code"]:
@@ -188,10 +214,10 @@ def collect(api, c, rotation=0, now=None):
             for item in uploads.get("items",[]):add(item.get("contentDetails",{}).get("videoId"),"지정한 채널의 최근 업로드")
     for vid in c["video_ids"]:add(vid,"설정 파일에서 지정한 영상")
     if not found:
-        return {"schema":1,"mode":"live","generatedAt":stamp,"reviewPolicy":"manual-original-country-v1","warnings":["검색 결과가 없습니다. 설정의 검색어·기간을 확인하세요."],"videos":[],"searchQueries":query_names,"searchLanguages":languages}
+        return {"schema":1,"mode":"live","generatedAt":stamp,"collectorVersion":"1.2","reviewPolicy":"manual-original-country-v1","warnings":["검색 결과가 없습니다. 설정의 검색어·기간을 확인하세요."],"videos":[],"searchQueries":query_names,"searchLanguages":languages}
     raw_videos=[]
     for batch in chunks(found):
-        raw_videos.extend(api.get("videos",part="snippet,statistics,contentDetails,status",id=",".join(batch)).get("items",[]))
+        raw_videos.extend(api.get("videos",part="snippet,statistics,contentDetails,status,topicDetails",id=",".join(batch)).get("items",[]))
     eligible=[]
     for v in raw_videos:
         s=v.get("snippet",{});seconds=duration_seconds(v.get("contentDetails",{}).get("duration"))
@@ -212,14 +238,18 @@ def collect(api, c, rotation=0, now=None):
         if not re.match(r"^https://(?:i\.ytimg\.com|img\.youtube\.com)/",thumb):thumb=""
         vid=v.get("id","")
         if not ID.fullmatch(vid):continue
-        result.append({"id":vid,"title":s.get("title",""),"channelTitle":s.get("channelTitle",""),"channelId":cid,
+        lang=infer_language(s)
+        evidence=screen_evidence(v)
+        result.append({"language":lang["code"],"languageBasis":lang["basis"],"audioLanguage":lang["audio"],
+                       "screenKind":evidence["kind"],"screenReason":evidence["reason"],
+                       "metadataVersion":"1.2","id":vid,"title":s.get("title",""),"channelTitle":s.get("channelTitle",""),"channelId":cid,
                        "views":number(st.get("viewCount")),"subscribers":subscribers.get(cid),
                        "publishedAt":s.get("publishedAt"),"fetchedAt":stamp,"durationSeconds":seconds,
                        "thumbnail":thumb,"originalStatus":"unverified","source":" / ".join(found.get(vid,[])[:2])})
     result.sort(key=lambda x:x["views"] if x["views"] is not None else -1,reverse=True)
     result=result[:c["max_videos"]]
     if not result:warnings.append("길이·공개 조건에 맞는 후보가 없습니다. 검색어를 넓혀 주세요.")
-    return {"schema":1,"mode":"live","generatedAt":stamp,"reviewPolicy":"manual-original-country-v1","warnings":warnings,"videos":result,"searchQueries":query_names,"searchLanguages":languages}
+    return {"schema":1,"mode":"live","generatedAt":stamp,"collectorVersion":"1.2","reviewPolicy":"manual-original-country-v1","warnings":warnings,"videos":result,"searchQueries":query_names,"searchLanguages":languages}
 
 def main():
     parser=argparse.ArgumentParser()
@@ -239,6 +269,9 @@ def main():
         data=collect(api,c,rotation)
         print(f"LIVE: {len(data['videos'])}개 수집. API 요청 횟수: {json.dumps(api.calls)}")
         print("검색 언어: " + ", ".join(data.get("searchLanguages", [])))
+        evidence_counts={kind:sum(v.get("screenKind")==kind for v in data['videos']) for kind in ['film','series','unknown','non_screen']}
+        small=sum(isinstance(v.get('subscribers'),int) and v['subscribers']<=10000 for v in data['videos'])
+        print("메타데이터 단서 분포: " + json.dumps(evidence_counts) + f" / 공개 구독 1만 이하: {small}개")
         print("원작 제작국은 자동 판정하지 않았습니다. 미확인 영상은 원작 확인 필요 탭에서 검토하세요.")
     encoded=json.dumps(data,ensure_ascii=False,indent=2)
     secret=os.environ.get("YOUTUBE_API_KEY","")
