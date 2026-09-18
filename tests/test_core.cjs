@@ -21,7 +21,7 @@ test('origin reset sends item to unknown review',()=>{let s=C.apply(C.blank(),v,
 test('origin review included in metadata-free backup',()=>{const s=C.apply(C.blank(),v,'origin_korean');const backup=C.exportData(s);assert.equal(backup.records[v.id].origin,'korean');assert.equal(backup.records[v.id].cache,undefined);assert.equal(C.normalize(backup).records[v.id].origin,'korean');});
 test('origin decisions for one video do not label other clips',()=>{const s=C.apply(C.blank(),v,'origin_korean');const another={...v,id:'AbCdEfGhI02',title:'same film'};assert.equal(C.originOf(s.records[another.id]),'unknown');});
 test('samples can test candidate behavior without a real country decision',()=>{const demo={id:'demo-1'};const s=C.apply(C.apply(C.blank(),demo,'like'),demo,'candidate');assert.equal(s.records[demo.id].stage,'candidate');});
-test('disliked and done items do not clog pending review',()=>{assert.equal(C.needsReview(v,{rating:'dislike'}),false);assert.equal(C.needsReview(v,{stage:'done'}),false);assert.equal(C.needsReview(v,{rating:'like'}),true);});
+test('rated and staged items do not clog pending review',()=>{assert.equal(C.needsReview(v,{rating:'dislike'}),false);assert.equal(C.needsReview(v,{rating:'like'}),false);assert.equal(C.needsReview(v,{stage:'done'}),false);assert.equal(C.needsReview(v,{stage:'candidate'}),false);});
 
 const fvideo={...v,durationSeconds:90,language:'en',languageSource:'title',languageBasis:'제목 문장 단서 · 추정, 음성 미확인',screenKind:'film',views:100000,subscribers:5000};
 const defaults=()=>C.defaultFilters();

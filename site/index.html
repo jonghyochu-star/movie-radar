@@ -5,11 +5,11 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="description" content="영화 쇼츠 소재를 찾고, 저장하고, 제작 후보로 선별하는 개인용 작업 보드">
 <title>Movie Radar — 소재에서 제작까지</title>
-<link rel="stylesheet" href="styles.css?v=1.4">
-<script defer src="core.js?v=1.4"></script><script defer src="app.js?v=1.4"></script>
+<link rel="stylesheet" href="styles.css?v=1.4.2">
+<script defer src="core.js?v=1.4.2"></script><script defer src="app.js?v=1.4.2"></script>
 </head>
 <body>
-<header class="header"><div class="brand"><span class="brandmark">M<span>R</span></span><div><h1>Movie Radar <small class="version">1.4.1</small></h1><p>발견은 가볍게, 선택은 내 취향대로.</p></div></div><div class="header-actions"><span id="mode" class="pill">불러오는 중</span><button id="refresh" class="quiet" title="GitHub Pages에 마지막으로 배포된 목록을 다시 불러옵니다. 새로운 YouTube 검색을 실행하지는 않습니다.">목록 새로고침</button></div></header>
+<header class="header"><div class="brand"><span class="brandmark">M<span>R</span></span><div><h1>Movie Radar <small class="version">1.4.2</small></h1><p>발견은 가볍게, 선택은 내 취향대로.</p></div></div><div class="header-actions"><span id="mode" class="pill">불러오는 중</span><button id="refresh" class="quiet" title="GitHub Pages에 마지막으로 배포된 목록을 다시 불러옵니다. 새로운 YouTube 검색을 실행하지는 않습니다.">목록 새로고침</button></div></header>
 <main>
 <section class="hero"><div><p class="eyebrow">YOUR NEXT STORY</p><h2>다음 이야기를 찾는 곳.</h2><p>조회수와 채널 규모를 비교하고, 마음에 남는 장면을 제작 후보로 모으세요.</p></div><div class="hero-note"><strong>좋아요 ≠ 바로 제작</strong><span>저장한 뒤, 한 번 더 골라도 됩니다.</span></div></section>
 <div id="notice" class="notice" role="status"></div>
@@ -68,7 +68,7 @@
 <section id="content" aria-live="polite"></section>
 <div class="pager"><button id="previous" class="quiet">이전 묶음</button><span id="page-label"></span><button id="next" class="primary">다음 20개</button><button id="revisit" class="quiet">나중에 넘긴 소재 다시 보기</button></div>
 <section class="storagebar"><div><strong>내 선택은 이 브라우저에 저장됩니다.</strong><p>다른 PC·브라우저와 자동으로 동기화되지 않습니다. 중요한 선택은 백업해 두세요.</p></div><div><button id="backup" title="좋아요·제작 상태·메모 같은 내 기록을 JSON 파일로 백업합니다.">내 기록 백업</button><button id="restore" title="이전에 백업한 내 기록 JSON 파일을 현재 브라우저 기록과 합칩니다.">백업 복원</button><input type="file" id="import-file" accept=".json,application/json" hidden></div></section>
-<footer><span id="updated">정보를 확인하고 있습니다.</span><p>Movie Radar의 평가는 YouTube 좋아요·구독에 영향을 주지 않습니다. 버전 1.4.1 · 다국어로 찾은 짧은 영상 후보입니다. 영화 단서는 제목·설명 등의 규칙 분석이며 영상 자체를 검증한 결과가 아닙니다. 원작 제작국·감동결·Shorts 여부는 직접 확인해 주세요. 한국 영화로 표시한 영상은 추천·보관함·제작 후보에서 숨기고 평가 기록에 남깁니다.</p><a href="privacy.html">개인정보·이용 안내</a> · <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube 이용약관</a> · <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google 개인정보처리방침</a> · <button id="clear" class="link danger">이 앱의 내 기록 삭제</button></footer>
+<footer><span id="updated">정보를 확인하고 있습니다.</span><p>Movie Radar의 평가는 YouTube 좋아요·구독에 영향을 주지 않습니다. 버전 1.4.2 · 다국어로 찾은 짧은 영상 후보입니다. 영화 단서는 제목·설명 등의 규칙 분석이며 영상 자체를 검증한 결과가 아닙니다. 원작 제작국·감동결·Shorts 여부는 직접 확인해 주세요. 한국 영화로 표시한 영상은 추천·보관함·제작 후보에서 숨기고 평가 기록에 남깁니다.</p><a href="privacy.html">개인정보·이용 안내</a> · <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube 이용약관</a> · <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google 개인정보처리방침</a> · <button id="clear" class="link danger">이 앱의 내 기록 삭제</button></footer>
 </main>
 <div id="toast" role="status" class="toast" hidden></div>
 <dialog id="edit-dialog"><form id="edit-form"><h2>소재 메모</h2><p>확인한 작품명·제작국·확인 출처를 메모해 두면 다시 찾기 쉽습니다.</p><label>내가 찾기 쉬운 이름<input id="edit-label" maxlength="150" placeholder="예: 할아버지의 노래, 아빠와 딸"></label><label>메모<textarea id="edit-memo" maxlength="5000" rows="6" placeholder="감동 포인트, 확인할 원작 장면, 나만의 구성 등을 기록하세요."></textarea></label><div class="dialogbuttons"><button type="button" id="edit-cancel">취소</button><button class="primary" type="submit">메모 저장</button></div></form></dialog>

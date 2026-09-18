@@ -71,7 +71,7 @@
   }
   function isSample(v) { return typeof v?.id==='string' && /^demo-/.test(v.id); }
   function ready(v,r) { return formatOf(r)!=='not_short' && mediaOf(r)!=='not_screen' && (isSample(v) || originOf(r)==='non_korean'); }
-  function needsReview(v,r={}) { return formatOf(r)!=='not_short' && mediaOf(r)!=='not_screen' && !isSample(v) && originOf(r)==='unknown' && r.rating!=='dislike' && r.stage!=='done'; }
+  function needsReview(v,r={}) { return formatOf(r)!=='not_short' && mediaOf(r)!=='not_screen' && !isSample(v) && originOf(r)==='unknown' && !r.rating && !r.stage; }
   function ratio(v) {
     const sub=v.subscribers, views=v.views;
     return typeof sub==='number' && sub>0 && typeof views==='number'?views/sub:null;
