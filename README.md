@@ -1,4 +1,34 @@
-# Movie Radar · Starter 1.2
+# Movie Radar 1.2.1 · 언어 판정 수정
+
+이번 수정은 검색어·API 요청 수·구독자/길이 조건·키·워크플로를 바꾸지 않습니다.
+
+- defaultLanguage는 제목·설명 언어 설정이며, 음성 언어로 쓰지 않습니다.
+- defaultAudioLanguage가 있으면 필터에서 우선 사용하고 "음성 설정"으로 표시합니다. 음성을 직접 분석한 결과는 아닙니다.
+- 음성 설정이 없을 때는 제목의 문자·문장 단서를 "제목 추정"으로 표시합니다. 충분한 단서가 없으면 언어 미확인으로 남깁니다.
+- movie, scene, shorts, viral 같은 공용 단어만으로 영어로 분류하지 않습니다.
+- 이전 1.2 데이터/저장 캐시도 제목 언어 설정만 있으면 영어 필터를 통과시키지 않습니다.
+- 미확인은 기본 숨김입니다. 사용자가 '언어 미확인 포함'을 켜면 다시 볼 수 있습니다. 저장한 자료를 삭제하지 않습니다.
+- 필터 판단 근거에 음성 설정과 제목·설명 설정을 나누어 보여줍니다.
+- 원작 제작국과 감동결은 여전히 직접 확인합니다. 인도 영화를 제작국으로 일괄 제외하지 않습니다.
+- 이 버전은 음성 다운로드, 자막 수집, 외부 AI 호출을 추가하지 않았습니다.
+
+## 적용
+기존 저장소 루트에 패치의 scripts, site, tests, README.md를 업로드합니다.
+기존 config.json, .github, site/data/videos.json, API Secret은 유지합니다.
+Actions > Movie Radar > Run workflow > main / live로 새 실행 후 Ctrl+Shift+R.
+
+## 한계
+업로더의 음성 설정 자체가 틀리면 이 버전도 실제 음성과 다르게 표시할 수 있습니다.
+제목의 언어도 음성/자막의 언어를 보장하지 않습니다. 자동 판정이라고 표기하지 않습니다.
+언어 조건을 엄격하게 바꾸었으므로 남는 후보 수가 줄거나 0개가 될 수 있습니다.
+
+## 공식 필드 정의
+https://developers.google.com/youtube/v3/docs/videos#snippet.defaultLanguage
+https://developers.google.com/youtube/v3/docs/videos#snippet.defaultAudioLanguage
+
+---
+
+# Movie Radar · Starter 1.2.1
 
 기존 `movie-radar` 저장소용 업데이트입니다. `.github/workflows/movie-radar.yml`, GitHub Secret `YOUTUBE_API_KEY`, 기존 `site/data/videos.json`은 유지합니다. 실제 수집 후 사용하려면 새 main 브랜치에서 mode=live를 실행하세요.
 
@@ -50,10 +80,10 @@
 ## 설치
 
 1. 기존 앱에서 ‘내 기록 백업’ 실행. 백업 JSON은 GitHub에 올리지 않습니다.
-2. 이 업데이트 `upload` 폴더의 내용물 5개(scripts/site/tests/config.json/README.md)를 기존 저장소 최상위에 업로드합니다. 폴더 자체를 감싸서 올리지 않습니다.
+2. 이 업데이트 `upload` 폴더의 내용물 4개(scripts/site/tests/README.md)를 기존 저장소 최상위에 업로드합니다. 폴더 자체를 감싸서 올리지 않습니다.
 3. Commit changes로 main에 저장합니다. 기존 `.github` 및 `site/data/videos.json`은 삭제하지 않습니다.
 4. Actions → Movie Radar → Run workflow → Branch main, mode live → 실행. 이전 실행의 Re-run은 쓰지 않습니다.
-5. build/deploy 성공 후 앱에서 Ctrl+Shift+R. 상단 1.2, 필터 영역, ‘YouTube 연결’을 확인합니다. 새 수집 데이터가 아닌 경우 앱이 안내합니다.
+5. build/deploy 성공 후 앱에서 Ctrl+Shift+R. 상단 1.2.1, 필터 영역, ‘YouTube 연결’을 확인합니다. 새 수집 데이터가 아닌 경우 앱이 안내합니다.
 
 API 키를 재발급하거나 Secret에 다시 넣을 필요는 없습니다. 기존 자동 실행 설정은 변경하지 않습니다.
 
@@ -64,7 +94,7 @@ python -m unittest discover -s tests -p 'test_*.py' -v
 node --test tests/test_core.cjs
 ```
 
-46 Python 테스트 + 49 JavaScript 테스트, 총 95개가 로컬에서 통과했습니다. 모의 데이터·모의 localStorage를 사용하는 Chromium 화면 시나리오 16개도 통과했습니다. 환경의 브라우저 네트워크 탐색 제한으로 네이티브 새로고침/다운로드 대신 직렬화·재수화와 백업 페이로드를 테스트했습니다. 실제 YouTube API 호출, 실제 검색 정확도, 사용자 GitHub 배포는 이번 패키지에서 수행하지 않았습니다. 기존 workflow는 Python 테스트를 실행하며 JavaScript 테스트는 제공된 명령으로 별도 실행 가능합니다.
+57 Python 테스트 + 61 JavaScript 테스트, 총 118개가 로컬에서 통과했습니다. 모의 데이터·모의 localStorage를 사용하는 Chromium 화면 시나리오 12개도 통과했습니다. 환경의 브라우저 네트워크 탐색 제한으로 실제 웹주소 탐색 대신 오프라인 HTML 주입과 모의 저장소를 통한 상태 복원을 테스트했습니다. 실제 YouTube API 호출, 실제 검색 정확도, 사용자 GitHub 배포는 이번 패키지에서 수행하지 않았습니다. 기존 workflow는 Python 테스트를 실행하며 JavaScript 테스트는 제공된 명령으로 별도 실행 가능합니다.
 
 ## 공식 참고 문서
 

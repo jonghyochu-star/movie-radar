@@ -14,29 +14,29 @@ def language_base(value):
     part = value.lower().replace('_','-').split('-')[0]
     return part if part in LANGS else ('other' if re.fullmatch(r'[a-z]{2,3}',part) else '')
 
-def infer_language(snippet):
-    """Prefer title/description language; retain audio language separately.
-    Non-Latin scripts are not mapped to a country. Search language is never proof.
+def _title_language(snippet):
+    """Text-only clues. Never call a Latin-script title English by default.
+
+    defaultLanguage may refine an ambiguous script, but is not independent
+    evidence that the spoken language, or even the title text, is correct.
+    Film names, hashtags and boilerplate movie/scene words are not enough.
     """
     title = str(snippet.get('title',''))[:300]
     clean = re.sub(r'https?://\S+|#[\w]+', ' ', title)
     declared = language_base(snippet.get('defaultLanguage'))
-    audio = language_base(snippet.get('defaultAudioLanguage'))
     patterns = [
         ('ko', r'[\uac00-\ud7a3]', '제목의 한글'),
         ('ja', r'[\u3040-\u30ff]', '제목의 일본어 문자'),
-        ('ar-script', r'[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff]', '제목의 아랍 문자권 · 언어 미확정'),
-        ('indic-script', r'[\u0900-\u0d7f]', '제목의 인도계 문자권 · 언어 미확정'),
+        ('ar-script', r'[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff]', '제목의 아랍 문자권 · 세부 언어 미확정'),
+        ('indic-script', r'[\u0900-\u0d7f]', '제목의 인도계 문자권 · 세부 언어 미확정'),
         ('th', r'[\u0e00-\u0e7f]', '제목의 태국어 문자'),
-        ('cyrillic', r'[\u0400-\u04ff]', '제목의 키릴 문자권 · 언어 미확정'),
+        ('cyrillic', r'[\u0400-\u04ff]', '제목의 키릴 문자권 · 세부 언어 미확정'),
         ('zh', r'[\u4e00-\u9fff]', '제목의 한자 · 중국어 추정'),
     ]
     counts=[(code,len(re.findall(pattern,clean)),why) for code,pattern,why in patterns]
-    # Kana even in mixed Japanese/Han text gives a better clue than Han count alone.
     if any(code=='ja' and n>=2 for code,n,_ in counts):
-        return {'code':'ja','basis':'제목의 일본어 문자 · 추정','audio':audio or 'unknown'}
-    dominant=sorted(counts,key=lambda x:x[1],reverse=True)[0]
-    code,n,why=dominant
+        return 'ja', '제목의 일본어 문자 · 음성 미확인'
+    code,n,why=sorted(counts,key=lambda x:x[1],reverse=True)[0]
     if n>=3:
         if code=='ar-script' and declared in {'ar','fa','ur'}:
             code,why=declared,'제목 문자와 제목 언어 설정'
@@ -44,18 +44,14 @@ def infer_language(snippet):
             code,why=declared,'제목 문자와 제목 언어 설정'
         elif code=='cyrillic' and declared=='ru':
             code,why='ru','제목 문자와 제목 언어 설정'
-        # A Han-only title may also be Japanese. Keep the declared Japanese setting.
         elif code=='zh' and declared=='ja':
-            code,why='ja','제목 언어 설정'
-        return {'code':code,'basis':why+' · 추정','audio':audio or 'unknown'}
-    if declared:
-        return {'code':declared,'basis':'업로더의 제목·설명 언어 설정','audio':audio or 'unknown'}
-    if audio:
-        return {'code':audio,'basis':'업로더의 기본 음성 언어 설정 · 제목 언어 미확인','audio':audio}
+            code,why='ja','제목의 한자와 일본어 제목 설정'
+        return code, why+' · 추정, 음성 미확인'
     folded=unicodedata.normalize('NFKC',clean).lower()
     words=set(re.findall(r"[a-zà-ÿ]+",folded))
+    # Do not count movie, film, scene, shorts, viral, names or hashtags as English.
     lex={
-        'en':{'the','this','that','with','her','his','she','he','was','they','but','when','movie','father','daughter'},
+        'en':{'the','this','that','with','her','his','she','he','was','they','but','when','father','daughter'},
         'es':{'película','escena','hija','hijo','porque','madre','padre','una','ella','pero'},
         'pt':{'filme','cena','filha','filho','mãe','não','você','ela','seu','uma'},
         'fr':{'scène','extrait','fille','mère','père','une','avec','dans','elle','mais'},
@@ -63,9 +59,32 @@ def infer_language(snippet):
         'it':{'scena','figlia','figlio','perché','della','dalla','questo','dopo','lui','suo'},
     }
     scored=sorted(((len(words&v),k) for k,v in lex.items()),reverse=True)
-    if scored[0][0]>=2 and scored[0][0]>scored[1][0]:
-        return {'code':scored[0][1],'basis':'제목 단어 규칙 · 추정','audio':'unknown'}
-    return {'code':'unknown','basis':'언어 정보 부족 · 검색어 언어로 단정하지 않음','audio':'unknown'}
+    n,lang=scored[0]
+    # English is especially overrepresented in mixed-language clip titles.
+    english_grammar={'the','this','that','with','her','his','she','he','was','they','but','when'}
+    enough=(n>=3 and len(words & english_grammar)>=2) if lang=='en' else n>=2
+    if enough and n>scored[1][0]:
+        return lang, '제목 문장 단서 · 추정, 음성 미확인'
+    return 'unknown', '음성 설정 없음 · 제목 단서 부족; 제목·설명 언어 설정만으로 통과시키지 않음'
+
+
+def infer_language(snippet):
+    """Audio metadata first; explainable title estimate second; otherwise unknown.
+
+    Both YouTube language fields are uploader metadata, not speech recognition.
+    Keep original declaration separate and never infer production country.
+    """
+    title_code,title_basis=_title_language(snippet)
+    audio=language_base(snippet.get('defaultAudioLanguage')) or 'unknown'
+    declared=language_base(snippet.get('defaultLanguage')) or 'unknown'
+    if audio!='unknown':
+        code,basis,source=audio,'업로더의 기본 음성 언어 설정 · 실제 음성 자동 검증 아님','audio'
+    elif title_code!='unknown':
+        code,basis,source=title_code,title_basis,'title'
+    else:
+        code,basis,source='unknown',title_basis,'unknown'
+    return {'code':code,'basis':basis,'audio':audio,'declared':declared,
+            'source':source,'titleCode':title_code,'titleBasis':title_basis}
 
 FILM_PATTERNS = [
     r'\b(?:movie|film)[\s_-]*(?:scene|clip)s?\b',
@@ -107,9 +126,15 @@ def screen_evidence(video):
     if negative:
         return {'kind':'non_screen','reason':negative+' · 규칙 기반, 오탐 가능'}
     if strong:
-        return {'kind':'film','reason':'제목·설명에 영화 장면 또는 작품 표기 단서 · 원작 미검증'}
+        match=re.search(strong,prose,re.I)
+        where='제목' if re.search(strong,title,re.I) else '설명'
+        phrase=match.group(0)[:80] if match else ''
+        return {'kind':'film','reason':f'{where}의 〈{phrase}〉 문구 · 영화 단서일 뿐, 원작·감동결 미검증'}
     if tv:
-        return {'kind':'series','reason':'제목·설명에 드라마·시리즈 장면 단서 · 원작 미검증'}
+        match=re.search(tv,prose,re.I)
+        where='제목' if re.search(tv,title,re.I) else '설명'
+        phrase=match.group(0)[:80] if match else ''
+        return {'kind':'series','reason':f'{where}의 〈{phrase}〉 문구 · 드라마 단서일 뿐, 원작·감동결 미검증'}
     # Two independent weaker clues, not a single #movie tag or search keyword.
     narrative_film=bool(re.search(r'\b(?:movie|film|pel[ií]cula|filme)\b|映画|电影|電影',meaningful_title))
     tag_film=bool(re.search(r'\b(?:movie|film|cinema|movieclips|filmclips)\b',tags+' '+' '.join(re.findall(r'#[\w]+',title))))

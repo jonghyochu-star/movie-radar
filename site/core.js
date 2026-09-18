@@ -92,6 +92,26 @@
 
   function mediaOf(r) { return r && ['screen','not_screen'].includes(r.media)?r.media:'unknown'; }
   const LANGUAGE_LABELS=Object.freeze({en:'영어',ja:'일본어',es:'스페인어',pt:'포르투갈어',fr:'프랑스어',de:'독일어',it:'이탈리아어',zh:'중국어',vi:'베트남어',th:'태국어',id:'인도네시아어',ru:'러시아어',tr:'튀르키예어',hi:'힌디어',ar:'아랍어',fa:'페르시아어',ur:'우르두어',bn:'벵골어',ta:'타밀어',te:'텔루구어',ko:'한국어','ar-script':'아랍 문자권(추정)','indic-script':'인도계 문자권(추정)',cyrillic:'키릴 문자권(추정)',other:'기타 언어',unknown:'언어 미확인'});
+  // v1.2.1: use exactly the same effective language for labels, filtering and balancing.
+  // Legacy snapshots/caches must not leak a defaultLanguage-only English label.
+  function languageInfo(v={}) {
+    const recognized=x=>typeof x==='string'&&x!=='unknown'&&Object.hasOwn(LANGUAGE_LABELS,x);
+    const label=x=>LANGUAGE_LABELS[x]||LANGUAGE_LABELS.unknown;
+    const audio=recognized(v.audioLanguage)?v.audioLanguage:'unknown';
+    let code='unknown',source='unknown',basis='음성 설정 또는 제목의 언어 단서가 부족합니다.';
+    if(audio!=='unknown'){
+      code=audio;source='audio';basis='업로더의 기본 음성 언어 설정 · 실제 음성 자동 검증 아님';
+    }else if(v.languageSource==='title'&&recognized(v.language)){
+      code=v.language;source='title';basis=v.languageBasis||'제목 단서 · 추정, 음성 미확인';
+
+    }else{
+      basis=v.languageSource==='unknown' ? (v.languageBasis||basis) : '음성 설정 없음 · 제목·설명 언어 설정만으로 통과시키지 않음';
+    }
+    let declared=recognized(v.declaredLanguage)?v.declaredLanguage:'unknown';
+    if(declared==='unknown'&&!v.languageSource&&v.languageBasis==='업로더의 제목·설명 언어 설정'&&recognized(v.language))declared=v.language;
+    const badge=source==='audio'?`${label(code)} · 음성 설정`:source==='title'?`${label(code)} · 제목 추정`:label('unknown');
+    return {code,source,basis,badge,audio,declared};
+  }
   const preferredLanguages=()=>['en','ja','es','pt','fr','de','it','zh'];
   const defaultFilters=()=>({schema:1,maxSubscribers:10000,minSeconds:0,maxSeconds:180,minViews:100000,content:'screen',languages:preferredLanguages(),includeUnknownLanguage:false,balance:true});
   function normalizeFilters(raw={}) {
@@ -116,7 +136,7 @@
     if(f.content==='screen'&&!['film','series','user_screen'].includes(kind))reasons.push('content');
     if(f.content==='film'&&kind!=='film')reasons.push('content');
     if(f.maxSubscribers>0&&!(Number.isFinite(v.subscribers)&&v.subscribers>=0&&v.subscribers<=f.maxSubscribers))reasons.push('subscribers');
-    const lang=Object.hasOwn(LANGUAGE_LABELS,v.language)?v.language:'unknown';
+    const lang=languageInfo(v).code;
     if(lang==='unknown'?!f.includeUnknownLanguage:!f.languages.includes(lang))reasons.push('language');
     if(!(Number.isFinite(v.durationSeconds)&&v.durationSeconds>=f.minSeconds&&v.durationSeconds<=f.maxSeconds))reasons.push('duration');
     if(f.minViews>0&&!(Number.isFinite(v.views)&&v.views>=f.minViews))reasons.push('views');
@@ -139,10 +159,10 @@
   }
   function balanceVideos(items, languageOrder=preferredLanguages()) {
     const languages=new Map();
-    for(const v of items){const lang=v.language||'unknown';if(!languages.has(lang))languages.set(lang,[]);languages.get(lang).push(v);}
+    for(const v of items){const lang=languageInfo(v).code;if(!languages.has(lang))languages.set(lang,[]);languages.get(lang).push(v);}
     const order=[...languageOrder.filter(x=>languages.has(x)),...[...languages.keys()].filter(x=>!languageOrder.includes(x))];
     const queues=order.map(lang=>{const channels=new Map();for(const v of languages.get(lang)){const id=v.channelId||v.id;if(!channels.has(id))channels.set(id,[]);channels.get(id).push(v);}return roundRobin([...channels.values()]);});
     return roundRobin(queues);
   }
-  return {MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, preferredLanguages, defaultFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
+  return {MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
 });

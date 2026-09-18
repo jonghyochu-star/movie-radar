@@ -115,4 +115,21 @@ class TestCollect(unittest.TestCase):
             c=m.load_config(p);api=FakeAPI();m.collect(api,c)
             search=next(params for name,params in api.calls if name=='search')
             self.assertNotIn('relevanceLanguage',search);self.assertNotIn('regionCode',search)
+    def test_language_fields_exported_separately(self):
+        class Mixed(FakeAPI):
+            def get(self,endpoint,**params):
+                data=super().get(endpoint,**params)
+                if endpoint=='videos':
+                    for i,v in enumerate(data['items']):
+                        v['snippet'].update(title='Yodha movie scene#bhik mangne ka tarika#explore#viral',defaultLanguage='en')
+                        if v['id']==HIDDEN:v['snippet']['defaultAudioLanguage']='hi'
+                return data
+        out=m.collect(Mixed(),self.config())
+        self.assertEqual(out['collectorVersion'],'1.2.1')
+        missing=next(v for v in out['videos'] if v['id']==GOOD)
+        audio=next(v for v in out['videos'] if v['id']==HIDDEN)
+        self.assertEqual((missing['language'],missing['declaredLanguage'],missing['languageSource']),('unknown','en','unknown'))
+        self.assertEqual((audio['language'],audio['audioLanguage'],audio['declaredLanguage']),('hi','hi','en'))
+        self.assertEqual(missing['originalStatus'],'unverified')
+        self.assertIn('movie scene',missing['screenReason'])
 if __name__=='__main__':unittest.main()

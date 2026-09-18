@@ -214,7 +214,7 @@ def collect(api, c, rotation=0, now=None):
             for item in uploads.get("items",[]):add(item.get("contentDetails",{}).get("videoId"),"지정한 채널의 최근 업로드")
     for vid in c["video_ids"]:add(vid,"설정 파일에서 지정한 영상")
     if not found:
-        return {"schema":1,"mode":"live","generatedAt":stamp,"collectorVersion":"1.2","reviewPolicy":"manual-original-country-v1","warnings":["검색 결과가 없습니다. 설정의 검색어·기간을 확인하세요."],"videos":[],"searchQueries":query_names,"searchLanguages":languages}
+        return {"schema":1,"mode":"live","generatedAt":stamp,"collectorVersion":"1.2.1","reviewPolicy":"manual-original-country-v1","warnings":["검색 결과가 없습니다. 설정의 검색어·기간을 확인하세요."],"videos":[],"searchQueries":query_names,"searchLanguages":languages}
     raw_videos=[]
     for batch in chunks(found):
         raw_videos.extend(api.get("videos",part="snippet,statistics,contentDetails,status,topicDetails",id=",".join(batch)).get("items",[]))
@@ -241,15 +241,17 @@ def collect(api, c, rotation=0, now=None):
         lang=infer_language(s)
         evidence=screen_evidence(v)
         result.append({"language":lang["code"],"languageBasis":lang["basis"],"audioLanguage":lang["audio"],
+                       "declaredLanguage":lang["declared"],"languageSource":lang["source"],
+                       "titleLanguage":lang["titleCode"],"titleLanguageBasis":lang["titleBasis"],
                        "screenKind":evidence["kind"],"screenReason":evidence["reason"],
-                       "metadataVersion":"1.2","id":vid,"title":s.get("title",""),"channelTitle":s.get("channelTitle",""),"channelId":cid,
+                       "metadataVersion":"1.2.1","id":vid,"title":s.get("title",""),"channelTitle":s.get("channelTitle",""),"channelId":cid,
                        "views":number(st.get("viewCount")),"subscribers":subscribers.get(cid),
                        "publishedAt":s.get("publishedAt"),"fetchedAt":stamp,"durationSeconds":seconds,
                        "thumbnail":thumb,"originalStatus":"unverified","source":" / ".join(found.get(vid,[])[:2])})
     result.sort(key=lambda x:x["views"] if x["views"] is not None else -1,reverse=True)
     result=result[:c["max_videos"]]
     if not result:warnings.append("길이·공개 조건에 맞는 후보가 없습니다. 검색어를 넓혀 주세요.")
-    return {"schema":1,"mode":"live","generatedAt":stamp,"collectorVersion":"1.2","reviewPolicy":"manual-original-country-v1","warnings":warnings,"videos":result,"searchQueries":query_names,"searchLanguages":languages}
+    return {"schema":1,"mode":"live","generatedAt":stamp,"collectorVersion":"1.2.1","reviewPolicy":"manual-original-country-v1","warnings":warnings,"videos":result,"searchQueries":query_names,"searchLanguages":languages}
 
 def main():
     parser=argparse.ArgumentParser()
