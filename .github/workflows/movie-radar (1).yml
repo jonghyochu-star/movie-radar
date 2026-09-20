@@ -1,0 +1,104 @@
+name: Movie Radar
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'live = 실제 YouTube 수집 / demo = 샘플'
+        type: choice
+        required: true
+        default: live
+        options: [live, demo]
+      collect_preset:
+        description: '다음 수집 언어'
+        type: choice
+        required: true
+        default: english_focus
+        options: [english_focus, english_only, balanced, custom]
+      custom_weights:
+        description: 'custom일 때만: en:70,ja:10,es:10,fr:10'
+        type: string
+        required: false
+        default: ''
+      retry_round:
+        description: '1=기본 / 2=다른 방향 / 3=더 넓게'
+        type: choice
+        required: true
+        default: '1'
+        options: ['1','2','3']
+      seed_video_ids:
+        description: '좋아요 씨앗 영상 ID · 앱에서 복사한 11자리 ID를 쉼표로 구분'
+        type: string
+        required: false
+        default: ''
+  schedule:
+    # UTC 22:23 = 한국 시간 다음 날 07:23.
+    # Repository variable AUTO_COLLECT=true일 때만 실제 자동 수집합니다.
+    - cron: '23 22 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movie-radar-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event_name != 'schedule' || vars.AUTO_COLLECT == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Read project files
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Restore collection history
+        uses: actions/cache@v4
+        with:
+          path: .cache/movie-radar
+          key: movie-radar-history-${{ github.repository_id }}-${{ github.run_id }}
+          restore-keys: |
+            movie-radar-history-${{ github.repository_id }}-
+      - name: Test collector and settings
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Build demo or collect YouTube data
+        env:
+          RUN_MODE: ${{ github.event_name == 'schedule' && 'live' || inputs.mode }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          COLLECT_PRESET: ${{ github.event_name == 'schedule' && vars.AUTO_COLLECT_PRESET || inputs.collect_preset }}
+          CUSTOM_LANGUAGE_WEIGHTS: ${{ github.event_name == 'schedule' && vars.AUTO_COLLECT_WEIGHTS || inputs.custom_weights }}
+          RETRY_ROUND: ${{ github.event_name == 'schedule' && '1' || inputs.retry_round }}
+          SEED_VIDEO_IDS: ${{ github.event_name == 'schedule' && vars.AUTO_SEED_VIDEO_IDS || inputs.seed_video_ids }}
+          COLLECT_HISTORY_PATH: .cache/movie-radar/history.json
+          COLLECTION_TRIGGER: ${{ github.event_name }}
+        shell: bash
+        run: |
+          PRESET="${COLLECT_PRESET:-english_focus}"
+          ROUND="${RETRY_ROUND:-1}"
+          python scripts/collect.py --mode "$RUN_MODE" --collect-preset "$PRESET" --custom-weights "$CUSTOM_LANGUAGE_WEIGHTS" --retry-round "$ROUND" --seed-video-ids "$SEED_VIDEO_IDS"
+      - name: Upload website files only
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+          retention-days: 1
+
+  deploy:
+    if: needs.build.result == 'success'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish Movie Radar
+        id: deployment
+        uses: actions/deploy-pages@v4
