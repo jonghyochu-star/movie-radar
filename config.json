@@ -33,11 +33,11 @@
       "language": "zh-Hans"
     }
   ],
-  "queries_per_run": 4,
+  "queries_per_run": 6,
   "recent_days": 30,
   "archive_days": 0,
   "results_per_search": 50,
-  "max_videos": 400,
+  "max_videos": 500,
   "min_seconds": 0,
   "max_seconds": 180,
   "relevance_language": "",

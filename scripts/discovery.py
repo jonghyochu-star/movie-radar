@@ -109,9 +109,16 @@ def validate_discovery(raw):
     limit=raw.get('reference_channel_limit',4)
     if type(limit) is not int or not 1<=limit<=4:
         raise ValueError('reference_channel_limit는 1~4여야 합니다.')
+    seed_pages=raw.get('seed_pages_per_channel',2)
+    if type(seed_pages) is not int or not 1<=seed_pages<=2:
+        raise ValueError('seed_pages_per_channel은 1 또는 2여야 합니다.')
+    seed_limit=raw.get('seed_channel_limit',4)
+    if type(seed_limit) is not int or not 1<=seed_limit<=4:
+        raise ValueError('seed_channel_limit는 1~4여야 합니다.')
     return {'schema':1,'enabled':raw.get('enabled',True),'profiles':profiles,
             'reference_video_ids':list(dict.fromkeys(refs)),
-            'reference_pages_per_channel':pages,'reference_channel_limit':limit}
+            'reference_pages_per_channel':pages,'reference_channel_limit':limit,
+            'seed_pages_per_channel':seed_pages,'seed_channel_limit':seed_limit}
 
 
 def select_profiles(c, rotation=0, preset='english_focus', custom_weights='', retry_round=1):
@@ -121,17 +128,17 @@ def select_profiles(c, rotation=0, preset='english_focus', custom_weights='', re
     plan=c.get('discovery')
     rotation=max(0,int(rotation)); retry_round=min(3,max(1,int(retry_round)))
     if plan and plan['enabled']:
-        count=min(c['queries_per_run'],4)
+        count=min(c['queries_per_run'],6)
         lane_sets={
-            1:['familiar','expand','work','open'],
-            2:['expand','open','familiar','open'],
-            3:['open','expand','open','work'],
+            1:['familiar','expand','work','open','familiar','open'],
+            2:['expand','open','familiar','open','expand','work'],
+            3:['open','expand','open','work','familiar','open'],
         }
         full=lane_sets[retry_round]
         if count==1: lane_order=['open']
         elif count==2: lane_order=[full[0],'open']
         elif count==3: lane_order=[full[0],full[1],'open']
-        else: lane_order=full
+        else: lane_order=full[:count]
         collection=parse_collection_plan(preset,custom_weights)
         langs=language_slots(collection,count,rotation+retry_round-1)
         selected=[]

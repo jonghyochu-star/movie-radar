@@ -28,7 +28,7 @@ class TestCollect(unittest.TestCase):
     def config(self):
         # Legacy behavior regression; discovery routes have separate tests.
         c=m.load_config(ROOT/'config.json');c.pop('discovery',None);return c
-    def test_config_valid(self):self.assertEqual(self.config()['queries_per_run'],4)
+    def test_config_valid(self):self.assertEqual(self.config()['queries_per_run'],6)
     def test_duration(self):
         for raw,val in [('PT1M30S',90),('PT1H2M3S',3723),('PT0S',0),('P1D',None),('',None),('PT',None)]:self.assertEqual(m.duration_seconds(raw),val)
     def test_number(self):
@@ -37,7 +37,7 @@ class TestCollect(unittest.TestCase):
         api=FakeAPI();result=m.collect(api,self.config(),0,datetime(2026,9,18,tzinfo=timezone.utc))
         self.assertEqual({v['id'] for v in result['videos']},{GOOD,HIDDEN})
         self.assertIsNone(next(v for v in result['videos'] if v['id']==HIDDEN)['subscribers'])
-        self.assertEqual(len([x for x in api.calls if x[0]=='search']),8)
+        self.assertEqual(len([x for x in api.calls if x[0]=='search']),12)
         self.assertEqual(result['mode'],'live')
         self.assertIn('<script>',result['videos'][0]['title']) # preserve raw API title; escape in browser
     def test_rotation(self):
@@ -76,7 +76,7 @@ class TestCollect(unittest.TestCase):
             api=FakeAPI();result=m.collect(api,c,rotation)
             seen.update(result['searchLanguages'])
             searches=[params for name,params in api.calls if name=='search']
-            self.assertEqual(len(searches),8)
+            self.assertEqual(len(searches),12)
             self.assertTrue(all('regionCode' not in p for p in searches))
             self.assertEqual(searches[0]['relevanceLanguage'],'en')
             self.assertEqual(searches[0].get('topicId'),'/m/02vxn')
@@ -127,7 +127,7 @@ class TestCollect(unittest.TestCase):
                         if v['id']==HIDDEN:v['snippet']['defaultAudioLanguage']='hi'
                 return data
         out=m.collect(Mixed(),self.config())
-        self.assertEqual(out['collectorVersion'],'1.4.1')
+        self.assertEqual(out['collectorVersion'],'1.5')
         missing=next(v for v in out['videos'] if v['id']==GOOD)
         audio=next(v for v in out['videos'] if v['id']==HIDDEN)
         self.assertEqual((missing['language'],missing['declaredLanguage'],missing['languageSource']),('unknown','en','unknown'))
@@ -145,6 +145,10 @@ class TestCollect(unittest.TestCase):
         c=m.load_config(ROOT/'config.json')
         out=m.collect(Japanese(),c,collection_preset='english_only')
         self.assertEqual(out['videos'],[])
+    def test_seed_video_ids_parse_and_limit(self):
+        self.assertEqual(m.parse_seed_video_ids('AbCdEfGhI01, AbCdEfGhI02 AbCdEfGhI01'),['AbCdEfGhI01','AbCdEfGhI02'])
+        with self.assertRaises(m.CollectionError):m.parse_seed_video_ids('not-a-youtube-id')
+        with self.assertRaises(m.CollectionError):m.parse_seed_video_ids(','.join(f'AbCdEfGh{i:02d}' for i in range(9)))
     def test_previous_ids_are_excluded(self):
         c=m.load_config(ROOT/'config.json')
         out=m.collect(FakeAPI(),c,excluded_ids={GOOD})

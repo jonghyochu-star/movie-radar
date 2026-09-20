@@ -5,11 +5,11 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="description" content="영화 쇼츠 소재를 찾고, 저장하고, 제작 후보로 선별하는 개인용 작업 보드">
 <title>Movie Radar — 소재에서 제작까지</title>
-<link rel="stylesheet" href="styles.css?v=1.4.2">
-<script defer src="core.js?v=1.4.2"></script><script defer src="app.js?v=1.4.2"></script>
+<link rel="stylesheet" href="styles.css?v=1.5">
+<script defer src="core.js?v=1.5"></script><script defer src="app.js?v=1.5"></script>
 </head>
 <body>
-<header class="header"><div class="brand"><span class="brandmark">M<span>R</span></span><div><h1>Movie Radar <small class="version">1.4.2</small></h1><p>발견은 가볍게, 선택은 내 취향대로.</p></div></div><div class="header-actions"><span id="mode" class="pill">불러오는 중</span><button id="refresh" class="quiet" title="GitHub Pages에 마지막으로 배포된 목록을 다시 불러옵니다. 새로운 YouTube 검색을 실행하지는 않습니다.">목록 새로고침</button></div></header>
+<header class="header"><div class="brand"><span class="brandmark">M<span>R</span></span><div><h1>Movie Radar <small class="version">1.5</small></h1><p>발견은 가볍게, 선택은 내 취향대로.</p></div></div><div class="header-actions"><span id="mode" class="pill">불러오는 중</span><button id="refresh" class="quiet" title="GitHub Pages에 마지막으로 배포된 목록을 다시 불러옵니다. 새로운 YouTube 검색을 실행하지는 않습니다.">목록 새로고침</button></div></header>
 <main>
 <section class="hero"><div><p class="eyebrow">YOUR NEXT STORY</p><h2>다음 이야기를 찾는 곳.</h2><p>조회수와 채널 규모를 비교하고, 마음에 남는 장면을 제작 후보로 모으세요.</p></div><div class="hero-note"><strong>좋아요 ≠ 바로 제작</strong><span>저장한 뒤, 한 번 더 골라도 됩니다.</span></div></section>
 <div id="notice" class="notice" role="status"></div>
@@ -56,19 +56,19 @@
 <section id="collection-panel" class="collection-panel">
 <div class="filter-heading"><strong>다음 수집 계획</strong><span class="muted">표시 언어와 별개입니다.</span></div>
 <div class="collection-grid">
-<label>수집 언어<select id="collect-preset" title="다음 GitHub Actions live 실행에서 실제로 사용할 검색 언어 구성을 정합니다."><option value="english_focus">영어 중심 · 검색 4회 중 3회</option><option value="english_only">영어만</option><option value="balanced">다국어 균형</option><option value="custom">직접 비중</option></select></label>
+<label>수집 언어<select id="collect-preset" title="다음 GitHub Actions live 실행에서 실제로 사용할 검색 언어 구성을 정합니다."><option value="english_focus">영어 중심 · 검색 주제 6개 중 4개</option><option value="english_only">영어만</option><option value="balanced">다국어 균형</option><option value="custom">직접 비중</option></select></label>
 <label id="custom-weights-wrap">직접 비중<input id="custom-weights" title="직접 비중 모드에서만 사용합니다. 예: en:70,ja:10,es:10,fr:10" value="en:70,ja:5,es:5,pt:5,fr:5,de:4,it:3,zh-Hans:3" placeholder="en:70,ja:10,es:10,fr:10"></label>
 <label>재탐색 단계<select id="retry-round" title="1차는 기본 탐색, 2차는 다른 방향, 3차는 더 넓은 방향으로 검색 경로를 바꿉니다. 하드 필터는 자동 완화하지 않습니다."><option value="1">1차 · 기본 탐색</option><option value="2">2차 · 다른 방향 더 찾기</option><option value="3">3차 · 더 넓게 탐색</option></select></label>
 </div>
 <div id="collection-current" class="filter-summary"></div>
-<div class="collection-actions"><button id="find-more" class="primary" title="다음 재탐색 단계 값을 준비하고 GitHub Actions 화면을 엽니다. 이미 본 영상 ID는 다시 제외합니다.">다른 소재 더 찾기</button><button id="no-harvest" class="quiet" title="이번 수집 묶음 전체에서 쓸 만한 소재를 찾지 못했다는 기록입니다. 개별 영상을 별로 처리하지는 않습니다.">오늘 수확 없음</button><button id="open-actions" class="quiet" title="새 YouTube 수집을 실행하는 GitHub Actions 화면을 엽니다.">GitHub Actions 열기</button></div>
-<p class="filter-footnote">보안상 공개 GitHub Pages가 Actions를 직접 실행하지는 않습니다. 버튼은 다음 실행값을 복사하고 Actions 화면을 엽니다. 자동 수집은 GitHub 변수 <code>AUTO_COLLECT=true</code>일 때 매일 07:23(KST)에 실행됩니다.</p>
+<div class="collection-actions"><button id="find-more" class="primary" title="다음 재탐색 단계 값을 준비하고 GitHub Actions 화면을 엽니다. 좋아요 씨앗 ID도 실행값에 포함합니다.">다른 소재 더 찾기</button><button id="copy-seeds" class="quiet" title="최근 좋아요 영상 ID를 최대 8개 복사합니다. Actions의 seed_video_ids 칸에 붙여넣으면 해당 채널의 다른 업로드를 다음 수집 출처로 사용합니다.">좋아요 씨앗 ID 복사</button><button id="no-harvest" class="quiet" title="이번 수집 묶음 전체에서 쓸 만한 소재를 찾지 못했다는 기록입니다. 개별 영상을 별로 처리하지는 않습니다.">오늘 수확 없음</button><button id="open-actions" class="quiet" title="새 YouTube 수집을 실행하는 GitHub Actions 화면을 엽니다.">GitHub Actions 열기</button></div>
+<p class="filter-footnote">좋아요는 브라우저에만 저장되므로 자동으로 GitHub에 전송되지 않습니다. 재탐색할 때 ‘좋아요 씨앗 ID 복사’로 최대 8개를 <code>seed_video_ids</code>에 붙여넣으면, 해당 영상은 재추천하지 않고 그 채널의 다른 업로드를 저비용 출처로 탐색합니다. 보안상 공개 GitHub Pages가 Actions를 직접 실행하지는 않습니다. 자동 수집은 GitHub 변수 <code>AUTO_COLLECT=true</code>일 때 매일 07:23(KST)에 실행됩니다.</p>
 </section>
 <div class="sectionline"><h3 id="section-title">아직 평가하지 않은 소재</h3><span id="result-count"></span></div>
 <section id="content" aria-live="polite"></section>
 <div class="pager"><button id="previous" class="quiet">이전 묶음</button><span id="page-label"></span><button id="next" class="primary">다음 20개</button><button id="revisit" class="quiet">나중에 넘긴 소재 다시 보기</button></div>
 <section class="storagebar"><div><strong>내 선택은 이 브라우저에 저장됩니다.</strong><p>다른 PC·브라우저와 자동으로 동기화되지 않습니다. 중요한 선택은 백업해 두세요.</p></div><div><button id="backup" title="좋아요·제작 상태·메모 같은 내 기록을 JSON 파일로 백업합니다.">내 기록 백업</button><button id="restore" title="이전에 백업한 내 기록 JSON 파일을 현재 브라우저 기록과 합칩니다.">백업 복원</button><input type="file" id="import-file" accept=".json,application/json" hidden></div></section>
-<footer><span id="updated">정보를 확인하고 있습니다.</span><p>Movie Radar의 평가는 YouTube 좋아요·구독에 영향을 주지 않습니다. 버전 1.4.2 · 다국어로 찾은 짧은 영상 후보입니다. 영화 단서는 제목·설명 등의 규칙 분석이며 영상 자체를 검증한 결과가 아닙니다. 원작 제작국·감동결·Shorts 여부는 직접 확인해 주세요. 한국 영화로 표시한 영상은 추천·보관함·제작 후보에서 숨기고 평가 기록에 남깁니다.</p><a href="privacy.html">개인정보·이용 안내</a> · <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube 이용약관</a> · <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google 개인정보처리방침</a> · <button id="clear" class="link danger">이 앱의 내 기록 삭제</button></footer>
+<footer><span id="updated">정보를 확인하고 있습니다.</span><p>Movie Radar의 평가는 YouTube 좋아요·구독에 영향을 주지 않습니다. 버전 1.5 · 다국어로 찾은 짧은 영상 후보입니다. 영화 단서는 제목·설명 등의 규칙 분석이며 영상 자체를 검증한 결과가 아닙니다. 원작 제작국·감동결·Shorts 여부는 직접 확인해 주세요. 한국 영화로 표시한 영상은 추천·보관함·제작 후보에서 숨기고 평가 기록에 남깁니다.</p><a href="privacy.html">개인정보·이용 안내</a> · <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube 이용약관</a> · <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google 개인정보처리방침</a> · <button id="clear" class="link danger">이 앱의 내 기록 삭제</button></footer>
 </main>
 <div id="toast" role="status" class="toast" hidden></div>
 <dialog id="edit-dialog"><form id="edit-form"><h2>소재 메모</h2><p>확인한 작품명·제작국·확인 출처를 메모해 두면 다시 찾기 쉽습니다.</p><label>내가 찾기 쉬운 이름<input id="edit-label" maxlength="150" placeholder="예: 할아버지의 노래, 아빠와 딸"></label><label>메모<textarea id="edit-memo" maxlength="5000" rows="6" placeholder="감동 포인트, 확인할 원작 장면, 나만의 구성 등을 기록하세요."></textarea></label><div class="dialogbuttons"><button type="button" id="edit-cancel">취소</button><button class="primary" type="submit">메모 저장</button></div></form></dialog>

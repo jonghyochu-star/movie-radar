@@ -64,9 +64,9 @@ def load_config(path):
         raise CollectionError("config.json을 읽지 못했습니다. JSON 쉼표·따옴표를 확인하세요.") from exc
     if not isinstance(c, dict):
         raise CollectionError("config.json은 객체 형식이어야 합니다.")
-    defaults = {"queries_per_run":4, "recent_days":30, "archive_days":0,
+    defaults = {"queries_per_run":6, "recent_days":30, "archive_days":0,
                 "results_per_search":50, "max_videos":400, "min_seconds":10, "max_seconds":180}
-    limits = {"queries_per_run":(1,4),"recent_days":(1,3650),"archive_days":(0,36500),
+    limits = {"queries_per_run":(1,6),"recent_days":(1,3650),"archive_days":(0,36500),
               "results_per_search":(1,50),"max_videos":(1,500),"min_seconds":(0,180),"max_seconds":(1,180)}
     for key, default in defaults.items():
         value = c.get(key, default)
@@ -241,7 +241,7 @@ def load_prior_history(repository, limit=5000, fp_limit=800):
     url=prior_pages_url(repository)
     if not url:return set(), [], None
     try:
-        req=Request(url+'?t='+str(int(time.time())),headers={'Accept':'application/json','User-Agent':'MovieRadar/1.4.1'})
+        req=Request(url+'?t='+str(int(time.time())),headers={'Accept':'application/json','User-Agent':'MovieRadar/1.5'})
         with urlopen(req,timeout=12) as response:data=json.load(response)
         ids=[];fps=[]
         if isinstance(data,dict):
@@ -257,7 +257,25 @@ def load_prior_history(repository, limit=5000, fp_limit=800):
     except Exception:
         return set(), [], '이전 배포 목록을 읽지 못했습니다. Actions 캐시가 있으면 그 기록으로 중복을 제외합니다.'
 
-def collect(api, c, rotation=0, now=None, collection_preset='english_focus', custom_weights='', retry_round=1, excluded_ids=None, excluded_fingerprints=None, trigger='manual'):
+def parse_seed_video_ids(value, limit=8):
+    """Parse comma/space/newline separated YouTube IDs. Invalid text is rejected.
+    Browser likes never enter the collector unless the user explicitly passes these IDs.
+    """
+    if value is None:return []
+    if isinstance(value,(list,tuple)):
+        raw=[]
+        for item in value:raw.extend(re.split(r'[\s,]+',str(item or '').strip()))
+    else:
+        raw=re.split(r'[\s,]+',str(value or '').strip())
+    out=[]
+    for item in raw:
+        if not item:continue
+        if not ID.fullmatch(item):raise CollectionError('좋아요 씨앗 영상 ID 형식이 잘못되었습니다. 11자리 YouTube 영상 ID만 넣으세요.')
+        if item not in out:out.append(item)
+    if len(out)>limit:raise CollectionError(f'좋아요 씨앗 영상은 최대 {limit}개까지 사용할 수 있습니다.')
+    return out
+
+def collect(api, c, rotation=0, now=None, collection_preset='english_focus', custom_weights='', retry_round=1, excluded_ids=None, excluded_fingerprints=None, trigger='manual', seed_video_ids=None):
     now = now or datetime.now(timezone.utc)
     stamp = timestamp(now)
     found, routes = {}, {}
@@ -270,8 +288,10 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
     plan=c.get('discovery')
     plan=plan if plan and plan['enabled'] else None
     reference_ids=plan['reference_video_ids'] if plan else []
+    seed_ids=parse_seed_video_ids(seed_video_ids)
+    blocked_seed_ids=set(reference_ids)|set(seed_ids)
     def add(vid, source, route='legacy'):
-        if isinstance(vid,str) and ID.fullmatch(vid) and vid not in reference_ids and vid not in excluded_ids:
+        if isinstance(vid,str) and ID.fullmatch(vid) and vid not in blocked_seed_ids and vid not in excluded_ids:
             found.setdefault(vid,[]);routes.setdefault(vid,[])
             if source not in found[vid]:found[vid].append(source)
             if route not in routes[vid]:routes[vid].append(route)
@@ -282,8 +302,8 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
     # Previously english_focus allowed every language present in its weight table, so a
     # Spanish reference channel could dominate even when Spanish was not this run's slot.
     active_languages={allowed_output.get(x,x) for x in languages}
-    # The existing maximum of 8 search requests is retained (retries are separate).
-    # No request multiplies with the number of reference uploads or themes.
+    # Six discovery topics x recent/archive = at most 12 search.list calls per run.
+    # Three normal retry rounds therefore plan at most 36 search.list calls, before transport retries.
     for profile in selected:
         for recent in [True,False]:
             params=dict(part='snippet',type='video',q=profile['q'],
@@ -300,21 +320,29 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
             for item in result.get('items',[]):
                 add(item.get('id',{}).get('videoId'),
                     f"{LABELS[profile['lane']]} / {profile['label']} · 검색어: {profile['q']} · {scope}",profile['lane'])
-    # Resolve user-provided VIDEO IDs at runtime; never guess channel IDs or map
-    # the user's 9 files to these 4 URLs. Reference videos themselves are not new candidates.
-    reference_channels=[];resolved_reference_ids=[]
-    if reference_ids:
-        seed_result=api.get('videos',part='snippet',id=','.join(reference_ids))
+    # Resolve fixed references and explicit liked-video seeds at runtime.
+    # Likes are browser-local; only IDs the user deliberately passes to Actions are used here.
+    reference_channels=[];seed_channels=[];resolved_reference_ids=[];resolved_seed_ids=[]
+    lookup_ids=list(dict.fromkeys([*reference_ids,*seed_ids]))
+    if lookup_ids:
+        seed_result=api.get('videos',part='snippet',id=','.join(lookup_ids))
         for v in seed_result.get('items',[]):
-            if v.get('id') not in reference_ids:continue
-            cid=v.get('snippet',{}).get('channelId','')
-            if isinstance(cid,str) and CHANNEL.fullmatch(cid):
-                resolved_reference_ids.append(v['id'])
+            vid=v.get('id');cid=v.get('snippet',{}).get('channelId','')
+            if not isinstance(cid,str) or not CHANNEL.fullmatch(cid):continue
+            if vid in reference_ids:
+                resolved_reference_ids.append(vid)
                 if cid not in reference_channels:reference_channels.append(cid)
+            if vid in seed_ids:
+                resolved_seed_ids.append(vid)
+                if cid not in seed_channels:seed_channels.append(cid)
         missing=len(set(reference_ids)-set(resolved_reference_ids))
         if missing:warnings.append(f'참고 링크 {missing}개의 공개 채널 정보를 확인하지 못해 해당 출처는 건너뛰었습니다.')
-        reference_channels=reference_channels[:plan['reference_channel_limit']]
-    source_channels=list(dict.fromkeys(reference_channels+c['channel_ids']))
+        missing_seed=len(set(seed_ids)-set(resolved_seed_ids))
+        if missing_seed:warnings.append(f'좋아요 씨앗 {missing_seed}개의 공개 채널 정보를 확인하지 못해 해당 씨앗은 건너뛰었습니다.')
+        if plan:
+            reference_channels=reference_channels[:plan['reference_channel_limit']]
+            seed_channels=seed_channels[:plan.get('seed_channel_limit',4)]
+    source_channels=list(dict.fromkeys(seed_channels+reference_channels+c['channel_ids']))
     source_stats=[]
     if source_channels:
         response=api.get('channels',part='snippet,contentDetails',id=','.join(source_channels))
@@ -323,7 +351,9 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
             if cid not in source_channels:continue
             playlist=ch.get('contentDetails',{}).get('relatedPlaylists',{}).get('uploads')
             if not playlist:continue
-            pages=plan['reference_pages_per_channel'] if plan and cid in reference_channels else 1
+            if plan and cid in seed_channels:pages=plan.get('seed_pages_per_channel',2)
+            elif plan and cid in reference_channels:pages=plan['reference_pages_per_channel']
+            else:pages=1
             token=None;seen_tokens=set();scanned=0
             for page in range(pages):
                 params={'part':'contentDetails','playlistId':playlist,'maxResults':50}
@@ -335,15 +365,18 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
                     raise
                 entries=uploads.get('items',[]);scanned+=len(entries)
                 for item in entries:
-                    add(item.get('contentDetails',{}).get('videoId'),
-                        '참고 채널의 업로드 목록에서 발견 · 같은 감동결이라는 보장은 없음' if cid in reference_channels else '지정한 채널의 최근 업로드','source')
+                    source_label=('좋아요 씨앗 영상의 채널 업로드에서 발견 · 같은 감동결이라는 보장은 없음' if cid in seed_channels
+                                  else '참고 채널의 업로드 목록에서 발견 · 같은 감동결이라는 보장은 없음' if cid in reference_channels
+                                  else '지정한 채널의 최근 업로드')
+                    add(item.get('contentDetails',{}).get('videoId'),source_label,'source')
                 token=uploads.get('nextPageToken')
                 if not token or token in seen_tokens:break
                 seen_tokens.add(token)
             source_stats.append({'channelId':cid,'channelTitle':ch.get('snippet',{}).get('title',''),
-                                 'scannedUploads':scanned,'referenceSource':cid in reference_channels})
+                                 'scannedUploads':scanned,'referenceSource':cid in reference_channels,
+                                 'likedSeedSource':cid in seed_channels})
     for vid in c['video_ids']:add(vid,'설정 파일에서 지정한 영상','direct')
-    base={'schema':1,'mode':'live','generatedAt':stamp,'collectorVersion':'1.4.1',
+    base={'schema':1,'mode':'live','generatedAt':stamp,'collectorVersion':'1.5',
           'reviewPolicy':'manual-original-country-v1','warnings':warnings,
           'searchQueries':query_names,'searchLanguages':languages,
           'collectionPlan':{'preset':collection_plan['preset'],'weights':collection_plan['weights'],
@@ -351,7 +384,9 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
                             'excludedPreviousIds':len(excluded_ids),'activeLanguages':languages},
           'discoveryPlan':[{'lane':p['lane'],'label':p['label'],'language':p['language'],'query':p['q']} for p in selected],
           'referenceSummary':{'requested':len(reference_ids),'resolved':len(resolved_reference_ids),
-                              'channels':source_stats},'shortsPolicy':'publisher-hint-or-user-confirmation-only'}
+                              'seedRequested':len(seed_ids),'seedResolved':len(resolved_seed_ids),
+                              'seedChannels':len(seed_channels),'channels':source_stats},
+          'shortsPolicy':'publisher-hint-or-user-confirmation-only'}
     if not found:
         base['warnings'].append('검색 결과가 없습니다. 참고 출처와 검색어·기간을 확인하세요.')
         return {**base,'collectorHistoryIds':list(excluded_ids)[-5000:],'collectorRecentFingerprints':[],'videos':[]}
@@ -395,7 +430,7 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
                        'declaredLanguage':lang['declared'],'languageSource':lang['source'],
                        'titleLanguage':lang['titleCode'],'titleLanguageBasis':lang['titleBasis'],
                        'screenKind':evidence['kind'],'screenReason':evidence['reason'],
-                       'metadataVersion':'1.4.1','id':vid,'title':s.get('title',''),'channelTitle':s.get('channelTitle',''),'channelId':cid,
+                       'metadataVersion':'1.5','id':vid,'title':s.get('title',''),'channelTitle':s.get('channelTitle',''),'channelId':cid,
                        'views':number(st.get('viewCount')),'subscribers':subscribers.get(cid),
                        'publishedAt':s.get('publishedAt'),'fetchedAt':stamp,'durationSeconds':seconds,
                        'thumbnail':thumb,'originalStatus':'unverified','source':' / '.join(found.get(vid,[])[:2]),
@@ -417,6 +452,7 @@ def main():
     parser.add_argument("--collect-preset",choices=["english_focus","english_only","balanced","custom"],default=os.environ.get("COLLECT_PRESET","english_focus"))
     parser.add_argument("--custom-weights",default=os.environ.get("CUSTOM_LANGUAGE_WEIGHTS",""))
     parser.add_argument("--retry-round",type=int,choices=[1,2,3],default=int(os.environ.get("RETRY_ROUND","1")))
+    parser.add_argument("--seed-video-ids",default=os.environ.get("SEED_VIDEO_IDS",""))
     args=parser.parse_args()
     target=ROOT/"site/data/videos.json"
     if args.mode=="demo":
@@ -436,14 +472,21 @@ def main():
         fingerprints=[*cache_fps,*page_fps]
         trigger=os.environ.get('COLLECTION_TRIGGER','manual')
         data=collect(api,c,rotation,collection_preset=args.collect_preset,custom_weights=args.custom_weights,
-                     retry_round=args.retry_round,excluded_ids=prior,excluded_fingerprints=fingerprints,trigger=trigger)
+                     retry_round=args.retry_round,excluded_ids=prior,excluded_fingerprints=fingerprints,trigger=trigger,
+                     seed_video_ids=args.seed_video_ids)
+        data['apiUsage']={'searchListCalls':api.calls.get('search',0),
+                          'otherCalls':sum(v for k,v in api.calls.items() if k!='search'),
+                          'byEndpoint':dict(api.calls),
+                          'note':'이번 실행에서 Movie Radar가 사용한 호출 수입니다. 프로젝트의 오늘 남은 전체 할당량은 Google Cloud에서 확인하세요.'}
         if prior_warning:data.setdefault('warnings',[]).append(prior_warning)
         merged_fps=[*fingerprints,*data.get('collectorRecentFingerprints',[])]
         save_cache_history(cache_path,data.get('collectorHistoryIds',[]),merged_fps)
         print(f"LIVE: {len(data['videos'])}개 수집. API 요청 횟수: {json.dumps(api.calls)}")
         print("수집 경로: " + ", ".join(p["lane"] for p in data.get("discoveryPlan",[])))
-        print("참고 출처 채널: " + str(len(data.get("referenceSummary",{}).get("channels",[]))))
+        print("참고·좋아요 출처 채널: " + str(len(data.get("referenceSummary",{}).get("channels",[]))) +
+              " / 좋아요 씨앗 채널 " + str(data.get('referenceSummary',{}).get('seedChannels',0)))
         print("검색 언어: " + ", ".join(data.get("searchLanguages", [])))
+        print("이번 실행 API 호출: " + json.dumps(data.get('apiUsage',{}).get('byEndpoint',{}),ensure_ascii=False))
         print("수집 언어 계획: " + json.dumps(data.get("collectionPlan",{}),ensure_ascii=False))
         print("중복 억제: " + str(data.get('collectionSummary',{}).get('duplicateCandidatesSuppressed',0)) + "개 / 캐시·이전 배포 ID 제외 " + str(data.get('collectionPlan',{}).get('excludedPreviousIds',0)) + "개")
         evidence_counts={kind:sum(v.get("screenKind")==kind for v in data['videos']) for kind in ['film','series','unknown','non_screen']}

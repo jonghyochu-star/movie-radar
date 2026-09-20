@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "enabled": true,
-  "note": "예시는 참고일 뿐이다. 검색 경로는 감동 판정이나 성공 점수가 아니다. familiar/expand/work/open 네 경로를 함께 탐색한다. 제작 후보의 구독자·언어·길이 조건과 원작 확인은 그대로 적용한다. 현재 브라우저 좋아요는 자동으로 이 파일을 변경하지 않는다.",
+  "note": "예시는 참고일 뿐이다. 검색 경로는 감동 판정이나 성공 점수가 아니다. familiar/expand/work/open 네 경로를 함께 탐색한다. 제작 후보의 구독자·언어·길이 조건과 원작 확인은 그대로 적용한다. 현재 브라우저 좋아요는 자동으로 이 파일을 변경하지 않는다. 좋아요 씨앗 영상 ID를 수동 실행에 전달하면 해당 채널의 최근 업로드를 저비용 출처로 추가한다.",
   "reference_video_ids": [
     "bTL6azhffzA",
     "sHEUBff9pEg",
@@ -587,5 +587,7 @@
       "language": "zh-Hans",
       "q": "\"Stick\" golf 片段 shorts -trailer"
     }
-  ]
+  ],
+  "seed_channel_limit": 4,
+  "seed_pages_per_channel": 2
 }

@@ -36,17 +36,17 @@ class DiscoveryTests(unittest.TestCase):
     def test_each_run_preserves_open_lane(self):
         for r in range(100):
             rows=select_profiles(self.config(),r)
-            self.assertEqual(len(rows),4)
-            self.assertEqual({x['lane'] for x in rows},{'familiar','expand','work','open'})
-    def test_english_focus_is_three_english_one_rotating_other(self):
+            self.assertEqual(len(rows),6)
+            self.assertTrue({'familiar','expand','work','open'}.issubset({x['lane'] for x in rows}))
+    def test_english_focus_is_four_english_two_rotating_others(self):
         others=set()
         for r in range(7):
             langs=[x['language'] for x in select_profiles(self.config(),r,'english_focus','',1)]
-            self.assertEqual(langs.count('en'),3);self.assertEqual(len(langs),4)
+            self.assertEqual(langs.count('en'),4);self.assertEqual(len(langs),6)
             others.update(x for x in langs if x!='en')
         self.assertEqual(others,{'ja','es','pt','fr','de','it','zh-Hans'})
     def test_english_only_is_strict_search_plan(self):
-        for r in range(4):self.assertEqual([x['language'] for x in select_profiles(self.config(),r,'english_only','',1)],['en']*4)
+        for r in range(4):self.assertEqual([x['language'] for x in select_profiles(self.config(),r,'english_only','',1)],['en']*6)
     def test_balanced_rotates_languages(self):
         seen=set()
         for r in range(8):seen.update(language_slots(parse_collection_plan('balanced'),4,r))
@@ -66,8 +66,8 @@ class DiscoveryTests(unittest.TestCase):
         refs=self.config()['discovery']['reference_video_ids']
         self.assertEqual(refs,['bTL6azhffzA','sHEUBff9pEg','z_clVFgQEbE','je_xDVmXpvQ'])
         self.assertEqual(self.config()['channel_ids'],[])
-    def test_search_stays_eight(self):
-        api=Fake();m.collect(api,self.config());self.assertEqual(sum(e=='search' for e,_ in api.calls),8)
+    def test_search_stays_twelve(self):
+        api=Fake();m.collect(api,self.config());self.assertEqual(sum(e=='search' for e,_ in api.calls),12)
     def test_search_not_movie_topic_gated(self):
         api=Fake();m.collect(api,self.config());self.assertTrue(all('topicId' not in p for e,p in api.calls if e=='search'))
     def test_reference_channel_followed_even_large(self):
@@ -148,7 +148,7 @@ class DiscoveryTests(unittest.TestCase):
         for n in [1,2,3]:
             c['queries_per_run']=n;out=select_profiles(c,0);self.assertEqual(len(out),n);self.assertIn('open',[p['lane'] for p in out])
     def test_snapshot_metadata_has_new_version(self):
-        out=m.collect(Fake(),self.config());self.assertEqual(out['collectorVersion'],'1.4.1')
+        out=m.collect(Fake(),self.config());self.assertEqual(out['collectorVersion'],'1.5')
         self.assertEqual(out['collectionSummary']['kept'],len(out['videos']))
 
     def test_english_focus_source_channel_respects_active_run_languages(self):
@@ -160,8 +160,44 @@ class DiscoveryTests(unittest.TestCase):
                         if x['id']==ALT:
                             x['snippet']['defaultAudioLanguage']='es';x['snippet']['title']='Una escena emotiva de una familia que se reconcilia #shorts'
                 return data
-        # rotation 0 uses en + ja as the non-English slot, so Spanish source uploads do not leak through.
-        out=m.collect(SpanishSource(),self.config(),rotation=0,collection_preset='english_focus')
+        # rotation 0 uses en + ja/es as the non-English slots. Use Portuguese to verify a non-active source upload does not leak through.
+        class PortugueseSource(Fake):
+            def get(self,e,**p):
+                data=super().get(e,**p)
+                if e=='videos' and p.get('part')!='snippet':
+                    for x in data['items']:
+                        if x['id']==ALT:
+                            x['snippet']['defaultAudioLanguage']='pt';x['snippet']['title']='Uma cena emocionante de uma família que se reconcilia #shorts'
+                return data
+        out=m.collect(PortugueseSource(),self.config(),rotation=0,collection_preset='english_focus')
         self.assertNotIn(ALT,[v['id'] for v in out['videos']])
+
+    def test_liked_seed_video_resolves_channel_and_scans_two_pages(self):
+        seed='SeedVideo01';seed_channel='UC'+'s'*22;seed_alt='SeedResult1'
+        class SeedFake(Fake):
+            def get(self,e,**p):
+                self.calls.append((e,p))
+                if e=='search':return {'items':[{'id':{'videoId':VID}}]}
+                if e=='videos' and p.get('part')=='snippet':
+                    items=[]
+                    for x in p['id'].split(','):
+                        if x==REF:items.append({'id':x,'snippet':{'channelId':LARGE}})
+                        if x==seed:items.append({'id':x,'snippet':{'channelId':seed_channel}})
+                    return {'items':items}
+                if e=='channels' and 'contentDetails' in p.get('part',''):
+                    return {'items':[{'id':c,'snippet':{'title':'src'},'contentDetails':{'relatedPlaylists':{'uploads':'UU'+c[2:]}}} for c in p['id'].split(',')]}
+                if e=='playlistItems':
+                    vid=seed_alt if p['playlistId']=='UU'+seed_channel[2:] else ALT
+                    return {'items':[{'contentDetails':{'videoId':vid}}], 'nextPageToken':'next'}
+                if e=='videos':
+                    return {'items':[make_video(x,seed_channel if x==seed_alt else CID) for x in p['id'].split(',')]}
+                if e=='channels':return {'items':[{'id':c,'statistics':{'subscriberCount':'2500','hiddenSubscriberCount':False}} for c in p['id'].split(',')]}
+                raise AssertionError(e)
+        api=SeedFake();out=m.collect(api,self.config(),seed_video_ids=seed,collection_preset='english_only')
+        self.assertEqual(out['referenceSummary']['seedResolved'],1)
+        self.assertEqual(out['referenceSummary']['seedChannels'],1)
+        self.assertNotIn(seed,[v['id'] for v in out['videos']])
+        self.assertIn(seed_alt,[v['id'] for v in out['videos']])
+        self.assertGreaterEqual(sum(e=='playlistItems' and p.get('playlistId')=='UU'+seed_channel[2:] for e,p in api.calls),2)
 
 if __name__=='__main__':unittest.main()

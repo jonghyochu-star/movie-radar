@@ -15,14 +15,20 @@ class UiSourceTests(unittest.TestCase):
 
     def test_key_controls_have_hover_help(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-        for control in ['collect-preset','retry-round','max-subs','shorts-filter','no-harvest','find-more']:
+        for control in ['collect-preset','retry-round','max-subs','shorts-filter','no-harvest','find-more','copy-seeds']:
             pos=html.find(f'id="{control}"')
             self.assertNotEqual(pos,-1,control)
             snippet=html[max(0,pos-160):pos+500]
             self.assertIn('title=',snippet,control)
-    def test_version_is_142(self):
+    def test_version_is_15(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-        self.assertIn('version">1.4.2<',html)
+        self.assertIn('version">1.5<',html)
+
+    def test_seed_copy_and_quota_summary_present(self):
+        app=(ROOT/'site/app.js').read_text(encoding='utf-8')
+        self.assertIn('seed_video_ids:',app)
+        self.assertIn('likedSeedIds',app)
+        self.assertIn('searchListCalls',app)
 
 if __name__=='__main__':
     unittest.main()

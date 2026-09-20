@@ -63,15 +63,23 @@ function repoActionsUrl(){
  const repo=location.pathname.split('/').filter(Boolean)[0]||'';
  return owner&&repo?`https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/workflows/movie-radar.yml`:'';
 }
+function likedSeedIds(limit=8){
+ return Object.values(state.records).filter(r=>r&&r.rating==='like'&&/^[A-Za-z0-9_-]{11}$/.test(r.id||'')&&!String(r.id).startsWith('demo-'))
+  .sort((a,b)=>(Date.parse(b.updatedAt)||0)-(Date.parse(a.updatedAt)||0)).slice(0,limit).map(r=>r.id);
+}
+function seedVideoText(){return likedSeedIds().join(',');}
 function collectionInstruction(){
  const custom=collectionPrefs.preset==='custom'?collectionPrefs.customWeights:'';
- return `Movie Radar 다음 수집\nmode: live\ncollect_preset: ${collectionPrefs.preset}\ncustom_weights: ${custom||'(비움)'}\nretry_round: ${collectionPrefs.retryRound}`;
+ return `Movie Radar 다음 수집\nmode: live\ncollect_preset: ${collectionPrefs.preset}\ncustom_weights: ${custom||'(비움)'}\nretry_round: ${collectionPrefs.retryRound}\nseed_video_ids: ${seedVideoText()||'(비움)'}`;
 }
 async function copyCollectionInstruction(){try{await navigator.clipboard.writeText(collectionInstruction());toast('다음 수집 실행값을 복사했습니다. Actions 화면에서 같은 값으로 실행하세요.');}catch{toast('클립보드 복사에 실패했습니다. 수집 설정을 Actions 화면에서 직접 선택하세요.');}}
+async function copySeedIds(){const text=seedVideoText();if(!text){toast('아직 좋아요 씨앗이 없습니다. 씨앗 없이도 검색 경로로 수집할 수 있습니다.');return;}try{await navigator.clipboard.writeText(text);toast(`좋아요 씨앗 ${likedSeedIds().length}개 ID를 복사했습니다. Actions의 seed_video_ids 칸에 붙여넣으세요.`);}catch{toast('씨앗 ID 복사에 실패했습니다. 실행값 전체 복사를 이용하세요.');}}
 function updateCollectionCurrent(){
  const p=dataset.collectionPlan||{}, labels={english_focus:'영어 중심',english_only:'영어만',balanced:'다국어 균형',custom:'직접 비중'};
- const current=p.preset?`현재 배포: ${labels[p.preset]||p.preset} · ${p.retryRound||1}차 · 이전 수집 ID ${p.excludedPreviousIds||0}개 제외`:'현재 배포의 수집 언어 계획 정보가 없습니다.';
- const next=`다음 실행 준비: ${labels[collectionPrefs.preset]} · ${collectionPrefs.retryRound}차${collectionPrefs.preset==='custom'?' · '+collectionPrefs.customWeights:''}`;
+ const ref=dataset.referenceSummary||{},api=dataset.apiUsage||{},seeds=likedSeedIds();
+ const quota=api.searchListCalls?` · 이번 실행 search.list ${api.searchListCalls}회`:'';
+ const current=p.preset?`현재 배포: ${labels[p.preset]||p.preset} · ${p.retryRound||1}차 · 이전 수집 ID ${p.excludedPreviousIds||0}개 제외 · 좋아요 씨앗 ${ref.seedResolved||0}/${ref.seedRequested||0}${quota}`:'현재 배포의 수집 언어 계획 정보가 없습니다.';
+ const next=`다음 실행 준비: ${labels[collectionPrefs.preset]} · ${collectionPrefs.retryRound}차 · 좋아요 씨앗 ${seeds.length}개${collectionPrefs.preset==='custom'?' · '+collectionPrefs.customWeights:''}`;
  $('#collection-current').textContent=current+' / '+next;
 }
 function loadFilters(){
@@ -127,7 +135,8 @@ function updateDiscoverySummary(){
  const scanned=channels.reduce((a,c)=>a+(Number(c.scannedUploads)||0),0);
  const cp=dataset.collectionPlan||{};const labels={english_focus:'영어 중심',english_only:'영어만',balanced:'다국어 균형',custom:'직접 비중'};
  const summaryData=dataset.collectionSummary||{},active=(cp.activeLanguages||[]).join(', ')||'미표시',dup=Number(summaryData.duplicateCandidatesSuppressed)||0;
- summary.innerHTML=`<summary>이번 수집 경로 보기 · 검색 ${plans.length}개 / 출처 채널 ${channels.length}개</summary><p><strong>수집 언어:</strong> ${esc(labels[cp.preset]||'이전 방식')} · 이번 실행 언어 ${esc(active)} · ${esc(cp.retryRound||1)}차 탐색 · 이전 수집 ID ${esc(cp.excludedPreviousIds||0)}개 제외</p><ul>${lines}</ul><p>채널 업로드 ${scanned}건을 조회했습니다. 정확한 영상 ID와 제목이 거의 같은 재업로드 후보 <strong>${esc(dup)}개</strong>를 중복 억제했습니다. 중복 판단은 보수적인 메타데이터 비교이며 영상 장면 자체를 비교한 것은 아닙니다.</p><p>중복·길이·공개 조건을 거친 뒤 화면 필터를 적용합니다. 채널이 같다고 감동결이 같다고 판단하지 않습니다. 첨부 영상과 닮지 않은 새 소재도 찾습니다. 좋아요 기록에 따른 수집 자동 학습은 1.5 이후 단계입니다.</p>`;
+ const ref=dataset.referenceSummary||{},api=dataset.apiUsage||{};
+ summary.innerHTML=`<summary>이번 수집 경로 보기 · 검색 주제 ${plans.length}개 / 출처 채널 ${channels.length}개</summary><p><strong>수집 언어:</strong> ${esc(labels[cp.preset]||'이전 방식')} · 이번 실행 언어 ${esc(active)} · ${esc(cp.retryRound||1)}차 탐색 · 이전 수집 ID ${esc(cp.excludedPreviousIds||0)}개 제외</p><p><strong>좋아요 반영:</strong> 씨앗 영상 ${esc(ref.seedResolved||0)}/${esc(ref.seedRequested||0)}개 확인 · 씨앗 채널 ${esc(ref.seedChannels||0)}개. 좋아요 영상 자체를 재추천하지 않고 해당 채널의 다른 업로드를 탐색합니다.</p><ul>${lines}</ul><p>채널 업로드 ${scanned}건을 조회했습니다. 정확한 영상 ID와 제목이 거의 같은 재업로드 후보 <strong>${esc(dup)}개</strong>를 중복 억제했습니다. 중복 판단은 보수적인 메타데이터 비교이며 영상 장면 자체를 비교한 것은 아닙니다.</p><p><strong>API 사용:</strong> 이번 실행 search.list ${esc(api.searchListCalls??'—')}회 · 기타 조회 ${esc(api.otherCalls??'—')}회. 전체 일일 잔여량은 Google Cloud에서 확인해야 합니다.</p><p>중복·길이·공개 조건을 거친 뒤 화면 필터를 적용합니다. 채널이 같다고 감동결이 같다고 판단하지 않습니다. 첨부 영상과 닮지 않은 새 소재도 계속 찾습니다.</p>`;
 }
 function originPanel(v,r){
  if(sample(v))return '';
@@ -179,13 +188,14 @@ function render(){
  $('#layout').hidden=!exploring;$('#layout').textContent=view==='card'?'목록으로 보기':'한 장씩 보기';
  updateFilterSummary();
  updateDiscoverySummary();
+ updateCollectionCurrent();
  $('#views-label').hidden=!exploring;$('#revisit').hidden=!exploring||skipped.size===0;
 }
 function snapshot(){undo={state:JSON.parse(JSON.stringify(state)),skipped:new Set(skipped)};}
 function handleAction(id,action){const v=allVideos().find(x=>x.id===id);if(!v)return;if(action==='memo'){editedId=id;$('#edit-label').value=historyRecord(v).label||'';$('#edit-memo').value=historyRecord(v).memo||'';$('#edit-dialog').showModal();return;}snapshot();if(action==='later'){skipped.add(id);render();toast('이번 탐색에서만 넘겼습니다. 취향 평가에는 쓰지 않습니다.',true);return;}if(['format_yes','format_no'].includes(action)&&!confirm(action==='format_yes'?'YouTube 원본에서 Shorts임을 확인하셨나요? 길이·태그만으로 판단하지 마세요.':'일반 영상으로 제외할까요? 좋아요·메모는 남기고 추천·보관함·후보에서 숨깁니다. 평가 기록에서 취소할 수 있습니다.'))return;if(action==='media_no'&&!confirm('영화·드라마 장면이 아닌 자료로 표시할까요? 추천·보관함·후보에서 숨기고 기존 메모·평가는 평가 기록에 남깁니다.'))return;if(['origin_foreign','origin_korean'].includes(action)&&!confirm(action==='origin_foreign'?'원작을 확인했고, 한국 영화가 아닌 작품이 맞나요? 영상 언어·채널 국가만으로 판단하지 마세요.':'원작이 한국 영화임을 확인했나요? 이 영상만 추천·보관함·제작 후보에서 숨기며, 메모와 기존 기록은 보존합니다.'))return;try{state=C.apply(state,v,action);}catch(error){toast(error.message);return;}const ok=persist();render();if(ok)toast({format_yes:'쇼츠로 확인했습니다. 원작과 감동결은 별도입니다.',format_no:'일반 영상으로 제외했습니다. 취향 평가는 바꾸지 않았습니다.',format_reset:'쇼츠 확인을 취소했습니다.',like:'좋아요 보관함에 저장했습니다.',dislike:'별로로 기록했습니다.',candidate:'제작 후보에 넣었습니다.',uncandidate:'후보만 해제했습니다. 좋아요는 유지됩니다.',done:'제작 완료로 기록했습니다.',reopen:'제작 후보로 되돌렸습니다.',unrate:'취향 평가를 취소했습니다.',origin_foreign:'한국 외 원작으로 기록했습니다. 소재 탐색에서 검토할 수 있습니다.',origin_korean:'한국 영화로 제외했습니다. 평가 기록에서 되돌릴 수 있습니다.',origin_reset:'원작 확인을 취소했습니다. 확인 필요 탭으로 분리합니다.',media_no:'영화·드라마가 아닌 영상으로 제외했습니다. 평가 기록에서 취소할 수 있습니다.',media_yes:'영화·드라마로 확인했습니다. 원작 제작국은 별도로 확인하세요.',media_reset:'영상 종류 확인을 취소했습니다. 원래 필터를 적용합니다.'}[action],true);}
 async function refresh(){const button=$('#refresh');button.disabled=true;try{const response=await fetch('data/videos.json?t='+Date.now(),{cache:'no-store'});if(!response.ok)throw Error(`목록 파일을 읽지 못했습니다 (${response.status}).`);const data=await response.json();if(!Array.isArray(data.videos)||!['live','demo'].includes(data.mode))throw Error('목록 파일 형식이 잘못되었습니다.');dataset=data;
- const stale=data.mode==='live'&&(!Number.isFinite(Date.parse(data.generatedAt))||Date.now()-Date.parse(data.generatedAt)>C.MAX_AGE);if(stale){dataset={...data,videos:[]};warn('수집 정보가 29일을 넘겨 표시하지 않습니다. GitHub Actions에서 live로 다시 수집해 주세요.');}else{$('#notice').classList.remove('error');$('#notice').textContent=data.mode==='demo'?'샘플 모드입니다. 제목·조회수는 기능 확인용 가상 데이터이며 실제 영상이 아닙니다. API 키를 등록하고 live로 실행하면 실제 목록으로 바뀝니다.':(data.warnings||[]).length?'수집 안내: '+data.warnings.join(' / '):'1.4.2 · 재탐색 화면은 이번 배포에서 새로 수집된 미평가 영상만 보여줍니다. 이전 좋아요는 좋아요 보관함에 유지됩니다.';}
- if(data.mode==='live'&&data.collectorVersion!=='1.4.1')warn('앱은 1.4이지만 수집 데이터는 이전 버전입니다. Actions에서 새 main / live 실행이 필요합니다.');
+ const stale=data.mode==='live'&&(!Number.isFinite(Date.parse(data.generatedAt))||Date.now()-Date.parse(data.generatedAt)>C.MAX_AGE);if(stale){dataset={...data,videos:[]};warn('수집 정보가 29일을 넘겨 표시하지 않습니다. GitHub Actions에서 live로 다시 수집해 주세요.');}else{$('#notice').classList.remove('error');$('#notice').textContent=data.mode==='demo'?'샘플 모드입니다. 제목·조회수는 기능 확인용 가상 데이터이며 실제 영상이 아닙니다. API 키를 등록하고 live로 실행하면 실제 목록으로 바뀝니다.':(data.warnings||[]).length?'수집 안내: '+data.warnings.join(' / '):'1.5 · 후보 풀을 넓히고 좋아요 씨앗 채널을 다음 수집 출처로 활용합니다. 이번 실행 API 호출 수도 수집 경로에서 확인할 수 있습니다.';}
+ if(data.mode==='live'&&data.collectorVersion!=='1.5')warn('앱은 1.5이지만 수집 데이터는 이전 버전입니다. Actions에서 새 main / live 실행이 필요합니다.');
  for(const v of dataset.videos){if(state.records[v.id]&&v.fetchedAt)state.records[v.id].cache=v;}state=C.normalize(state);persist();$('#mode').textContent=data.mode==='live'?'YouTube 연결':'SAMPLE';$('#mode').classList.toggle('live',data.mode==='live');$('#updated').textContent=`목록 갱신: ${data.generatedAt?new Date(data.generatedAt).toLocaleString('ko-KR'):'샘플 초기 파일'} · 배포 수집량 ${data.videos.length}개`;updateCollectionCurrent();if(data.mode==='live'&&tab==='discover'&&!dataset.videos.some(v=>C.ready(v,historyRecord(v))&&!historyRecord(v).rating&&!historyRecord(v).stage)&&allVideos().some(v=>C.needsReview(v,historyRecord(v))))tab='review';page=0;render();
  }catch(error){warn(error.message+' 보관함은 계속 사용할 수 있습니다.');render();}finally{button.disabled=false;}}
 $('#tabs').onclick=e=>{const b=e.target.closest('[data-tab]');if(!b)return;tab=b.dataset.tab;page=0;$('#search').value='';$('#sort').value=['discover','review'].includes(tab)?'views':'saved';render();};$('#content').onclick=e=>{const b=e.target.closest('[data-action]');if(b)handleAction(b.closest('[data-id]').dataset.id,b.dataset.action);};
@@ -217,6 +227,7 @@ $('#collect-preset').onchange=()=>{collectionPrefs.preset=$('#collect-preset').v
 $('#custom-weights').onchange=()=>{collectionPrefs.customWeights=$('#custom-weights').value;saveCollectionPrefs();};
 $('#retry-round').onchange=()=>{collectionPrefs.retryRound=Number($('#retry-round').value);saveCollectionPrefs();};
 $('#open-actions').onclick=()=>{const u=repoActionsUrl();if(u)window.open(u,'_blank','noopener');else toast('GitHub Actions 주소를 자동으로 만들지 못했습니다. 저장소의 Actions 탭을 여세요.');};
+$('#copy-seeds').onclick=copySeedIds;
 $('#find-more').onclick=async()=>{const current=Number(dataset.collectionPlan?.retryRound)||collectionPrefs.retryRound||1;collectionPrefs.retryRound=Math.min(3,current+1);saveCollectionPrefs();const u=repoActionsUrl();if(u)window.open(u,'_blank','noopener');await copyCollectionInstruction();};
 $('#no-harvest').onclick=()=>{if(dataset.mode!=='live'||!dataset.generatedAt){toast('실제 수집 목록에서만 수확 없음 기록을 남길 수 있습니다.');return;}const current=Number(dataset.collectionPlan?.retryRound)||collectionPrefs.retryRound||1;state=C.recordBatchFeedback(state,dataset.generatedAt,'no_harvest',current);persist();collectionPrefs.retryRound=Math.min(3,current+1);saveCollectionPrefs();toast(`이번 수집을 ‘수확 없음’으로 기록했습니다. 다음은 ${collectionPrefs.retryRound}차 재탐색을 추천합니다.`);};
 $('#reset-filters').onclick=()=>{filters=C.defaultFilters();saveFilters();toast('구독자 1만 이하·10만 조회 이상·3분 이하·우선 언어·영화/드라마 단서로 돌아왔습니다.');};
