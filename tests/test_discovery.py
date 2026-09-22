@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('collect13',ROOT/'scripts/collect.py')
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
-from discovery import select_profiles,validate_discovery,shorts_hint,diverse_snapshot,parse_collection_plan,language_slots
+from discovery import select_profiles,validate_discovery,shorts_hint,diverse_snapshot,select_review_pool,source_category,parse_collection_plan,language_slots
 CID='UC'+'r'*22; LARGE='UC'+'s'*22
 VID='DemoVideo01';ALT='DemoVideo02';REF='bTL6azhffzA'
 
@@ -148,8 +148,37 @@ class DiscoveryTests(unittest.TestCase):
         for n in [1,2,3]:
             c['queries_per_run']=n;out=select_profiles(c,0);self.assertEqual(len(out),n);self.assertIn('open',[p['lane'] for p in out])
     def test_snapshot_metadata_has_new_version(self):
-        out=m.collect(Fake(),self.config());self.assertEqual(out['collectorVersion'],'1.5')
+        out=m.collect(Fake(),self.config());self.assertEqual(out['collectorVersion'],'1.6')
         self.assertEqual(out['collectionSummary']['kept'],len(out['videos']))
+        self.assertLessEqual(len(out['videos']),48)
+
+    def test_review_pool_limits_one_channel(self):
+        rows=[]
+        for i in range(30):
+            rows.append({'id':f'g{i}','views':1000000-i,'subscribers':3000,'channelId':'same','discoveryRoutes':['familiar'],'sourceKinds':['search']})
+        for i in range(30):
+            rows.append({'id':f'x{i}','views':900000-i,'subscribers':4000,'channelId':f'other{i}','discoveryRoutes':['open'],'sourceKinds':['search']})
+        out=select_review_pool(rows,48,4,30,15)
+        self.assertEqual(len(out),34)
+        self.assertLessEqual(sum(v['channelId']=='same' for v in out),4)
+
+    def test_review_pool_caps_seed_and_reference_sources(self):
+        rows=[]
+        for i in range(40):
+            rows.append({'id':f's{i}','views':800000-i,'subscribers':3000,'channelId':f'seed{i}','discoveryRoutes':['source'],'sourceKinds':['seed']})
+        for i in range(30):
+            rows.append({'id':f'r{i}','views':700000-i,'subscribers':3000,'channelId':f'ref{i}','discoveryRoutes':['source'],'sourceKinds':['reference']})
+        for i in range(60):
+            rows.append({'id':f'q{i}','views':600000-i,'subscribers':3000,'channelId':f'q{i}','discoveryRoutes':['familiar' if i%2 else 'open'],'sourceKinds':['search']})
+        out=select_review_pool(rows,48,4,30,15)
+        self.assertEqual(len(out),48)
+        self.assertLessEqual(sum(source_category(v)=='seed' for v in out),14)
+        self.assertLessEqual(sum(source_category(v)=='reference' for v in out),7)
+        self.assertGreater(sum(source_category(v) in {'guided','explore'} for v in out),20)
+
+    def test_search_hit_from_seed_channel_is_search_category(self):
+        v={'id':'a','discoveryRoutes':['familiar','source'],'sourceKinds':['search','seed']}
+        self.assertEqual(source_category(v),'guided')
 
     def test_english_focus_source_channel_respects_active_run_languages(self):
         class SpanishSource(Fake):
@@ -172,7 +201,7 @@ class DiscoveryTests(unittest.TestCase):
         out=m.collect(PortugueseSource(),self.config(),rotation=0,collection_preset='english_focus')
         self.assertNotIn(ALT,[v['id'] for v in out['videos']])
 
-    def test_liked_seed_video_resolves_channel_and_scans_two_pages(self):
+    def test_liked_seed_video_resolves_channel_and_scans_bounded_page(self):
         seed='SeedVideo01';seed_channel='UC'+'s'*22;seed_alt='SeedResult1'
         class SeedFake(Fake):
             def get(self,e,**p):
@@ -198,6 +227,8 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(out['referenceSummary']['seedChannels'],1)
         self.assertNotIn(seed,[v['id'] for v in out['videos']])
         self.assertIn(seed_alt,[v['id'] for v in out['videos']])
-        self.assertGreaterEqual(sum(e=='playlistItems' and p.get('playlistId')=='UU'+seed_channel[2:] for e,p in api.calls),2)
+        self.assertEqual(sum(e=='playlistItems' and p.get('playlistId')=='UU'+seed_channel[2:] for e,p in api.calls),1)
+        seed_rows=[v for v in out['videos'] if v['id']==seed_alt]
+        self.assertTrue(seed_rows);self.assertIn('seed',seed_rows[0].get('sourceKinds',[]))
 
 if __name__=='__main__':unittest.main()

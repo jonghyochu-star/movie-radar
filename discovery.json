@@ -589,5 +589,9 @@
     }
   ],
   "seed_channel_limit": 4,
-  "seed_pages_per_channel": 2
+  "seed_pages_per_channel": 1,
+  "review_pool_limit": 48,
+  "per_channel_limit": 4,
+  "seed_pool_percent": 30,
+  "reference_pool_percent": 15
 }

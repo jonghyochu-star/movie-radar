@@ -20,9 +20,9 @@ class UiSourceTests(unittest.TestCase):
             self.assertNotEqual(pos,-1,control)
             snippet=html[max(0,pos-160):pos+500]
             self.assertIn('title=',snippet,control)
-    def test_version_is_151(self):
+    def test_version_is_16(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-        self.assertIn('version">1.5.1<',html)
+        self.assertIn('version">1.6<',html)
 
     def test_seed_copy_and_quota_summary_present(self):
         app=(ROOT/'site/app.js').read_text(encoding='utf-8')
@@ -42,6 +42,12 @@ class UiSourceTests(unittest.TestCase):
     def test_seed_not_passed_warning_exists(self):
         app=(ROOT/'site/app.js').read_text(encoding='utf-8')
         self.assertIn('이번 배포에는 좋아요 씨앗 ID가 전달되지 않음',app)
+
+    def test_review_pool_summary_is_visible(self):
+        app=(ROOT/'site/app.js').read_text(encoding='utf-8')
+        self.assertIn('이번 검토 풀',app)
+        self.assertIn('한 채널 최대',app)
+        self.assertIn('씨앗 출처 최대',app)
 
 if __name__=='__main__':
     unittest.main()

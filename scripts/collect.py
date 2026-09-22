@@ -24,7 +24,7 @@ _SCRIPT_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 from screen_rules import infer_language, screen_evidence
-from discovery import validate_discovery, select_profiles, shorts_hint, diverse_snapshot, LABELS, parse_collection_plan
+from discovery import validate_discovery, select_profiles, shorts_hint, diverse_snapshot, select_review_pool, source_category, LABELS, parse_collection_plan
 
 CHANNEL = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
 
@@ -278,7 +278,7 @@ def parse_seed_video_ids(value, limit=8):
 def collect(api, c, rotation=0, now=None, collection_preset='english_focus', custom_weights='', retry_round=1, excluded_ids=None, excluded_fingerprints=None, trigger='manual', seed_video_ids=None):
     now = now or datetime.now(timezone.utc)
     stamp = timestamp(now)
-    found, routes = {}, {}
+    found, routes, source_kinds = {}, {}, {}
     warnings = []
     excluded_ids=set(excluded_ids or [])
     excluded_fingerprints=list(excluded_fingerprints or [])
@@ -290,11 +290,12 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
     reference_ids=plan['reference_video_ids'] if plan else []
     seed_ids=parse_seed_video_ids(seed_video_ids)
     blocked_seed_ids=set(reference_ids)|set(seed_ids)
-    def add(vid, source, route='legacy'):
+    def add(vid, source, route='legacy', source_kind='search'):
         if isinstance(vid,str) and ID.fullmatch(vid) and vid not in blocked_seed_ids and vid not in excluded_ids:
-            found.setdefault(vid,[]);routes.setdefault(vid,[])
+            found.setdefault(vid,[]);routes.setdefault(vid,[]);source_kinds.setdefault(vid,[])
             if source not in found[vid]:found[vid].append(source)
             if route not in routes[vid]:routes[vid].append(route)
+            if source_kind not in source_kinds[vid]:source_kinds[vid].append(source_kind)
     selected=select_profiles(c,rotation,collection_preset,custom_weights,retry_round)
     query_names=[entry['q'] for entry in selected]
     languages=list(dict.fromkeys(entry['language'] for entry in selected if entry['language']))
@@ -368,15 +369,16 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
                     source_label=('좋아요 씨앗 영상의 채널 업로드에서 발견 · 같은 감동결이라는 보장은 없음' if cid in seed_channels
                                   else '참고 채널의 업로드 목록에서 발견 · 같은 감동결이라는 보장은 없음' if cid in reference_channels
                                   else '지정한 채널의 최근 업로드')
-                    add(item.get('contentDetails',{}).get('videoId'),source_label,'source')
+                    source_kind='seed' if cid in seed_channels else 'reference' if cid in reference_channels else 'configured'
+                    add(item.get('contentDetails',{}).get('videoId'),source_label,'source',source_kind)
                 token=uploads.get('nextPageToken')
                 if not token or token in seen_tokens:break
                 seen_tokens.add(token)
             source_stats.append({'channelId':cid,'channelTitle':ch.get('snippet',{}).get('title',''),
                                  'scannedUploads':scanned,'referenceSource':cid in reference_channels,
                                  'likedSeedSource':cid in seed_channels})
-    for vid in c['video_ids']:add(vid,'설정 파일에서 지정한 영상','direct')
-    base={'schema':1,'mode':'live','generatedAt':stamp,'collectorVersion':'1.5',
+    for vid in c['video_ids']:add(vid,'설정 파일에서 지정한 영상','direct','direct')
+    base={'schema':1,'mode':'live','generatedAt':stamp,'collectorVersion':'1.6',
           'reviewPolicy':'manual-original-country-v1','warnings':warnings,
           'searchQueries':query_names,'searchLanguages':languages,
           'collectionPlan':{'preset':collection_plan['preset'],'weights':collection_plan['weights'],
@@ -430,19 +432,32 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
                        'declaredLanguage':lang['declared'],'languageSource':lang['source'],
                        'titleLanguage':lang['titleCode'],'titleLanguageBasis':lang['titleBasis'],
                        'screenKind':evidence['kind'],'screenReason':evidence['reason'],
-                       'metadataVersion':'1.5','id':vid,'title':s.get('title',''),'channelTitle':s.get('channelTitle',''),'channelId':cid,
+                       'metadataVersion':'1.6','id':vid,'title':s.get('title',''),'channelTitle':s.get('channelTitle',''),'channelId':cid,
                        'views':number(st.get('viewCount')),'subscribers':subscribers.get(cid),
                        'publishedAt':s.get('publishedAt'),'fetchedAt':stamp,'durationSeconds':seconds,
                        'thumbnail':thumb,'originalStatus':'unverified','source':' / '.join(found.get(vid,[])[:2]),
-                       'discoveryRoutes':routes.get(vid,[]),'shortsHint':shorts_hint(s)})
+                       'discoveryRoutes':routes.get(vid,[]),'sourceKinds':source_kinds.get(vid,[]),'shortsHint':shorts_hint(s)})
     eligible_count=len(result)
     result=diverse_snapshot(result,c['max_videos'])
+    raw_after_cap=len(result)
+    if plan:
+        review_limit=min(c['max_videos'],plan.get('review_pool_limit',48))
+        result=select_review_pool(result,review_limit,plan.get('per_channel_limit',4),plan.get('seed_pool_percent',30),plan.get('reference_pool_percent',15))
+    else:
+        review_limit=c['max_videos']
     if not result:warnings.append('길이·공개 조건에 맞는 후보가 없습니다.')
     base['warnings']=warnings
-    base['collectionSummary']={'uniqueFound':len(found),'eligibleBeforeCap':eligible_count,'kept':len(result),
-        'duplicateCandidatesSuppressed':duplicate_suppressed,'snapshotLimit':c['max_videos'],
+    category_counts={k:sum(source_category(v)==k for v in result) for k in ['guided','explore','seed','reference','configured','other']}
+    channel_counts={}
+    for v in result:
+        cid=v.get('channelId') or v.get('id');channel_counts[cid]=channel_counts.get(cid,0)+1
+    base['collectionSummary']={'uniqueFound':len(found),'eligibleBeforeCap':eligible_count,'rawAfterSafetyCap':raw_after_cap,'kept':len(result),
+        'reserveCount':max(0,raw_after_cap-len(result)),'duplicateCandidatesSuppressed':duplicate_suppressed,'snapshotLimit':c['max_videos'],
+        'reviewPoolLimit':review_limit,'perChannelLimit':plan.get('per_channel_limit',4) if plan else None,
+        'seedPoolPercent':plan.get('seed_pool_percent',30) if plan else None,'referencePoolPercent':plan.get('reference_pool_percent',15) if plan else None,
+        'maxPerChannelObserved':max(channel_counts.values(),default=0),'sourceCategoryCounts':category_counts,
         'routeCounts':{lane:sum(lane in v['discoveryRoutes'] for v in result) for lane in LABELS},
-        'note':'경로별 수는 중복 포함. 중복 억제는 정확한 영상 ID와 제목이 거의 같은 재업로드 후보에만 보수적으로 적용합니다.'}
+        'note':'원본 후보를 버린 것이 아니라 검토 부담을 줄이기 위해 출처·채널 쏠림을 제한한 공개 검토 풀입니다. 씨앗/참고 채널 비중은 상한이며 검색 후보가 부족하면 표시 수가 목표보다 적을 수 있습니다.'}
     history=list(dict.fromkeys([*excluded_ids,*[v['id'] for v in result]]))[-5000:]
     return {**base,'collectorHistoryIds':history,'collectorRecentFingerprints':accepted_fingerprints[-800:],'videos':result}
 

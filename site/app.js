@@ -137,8 +137,12 @@ function updateDiscoverySummary(){
  const scanned=channels.reduce((a,c)=>a+(Number(c.scannedUploads)||0),0);
  const cp=dataset.collectionPlan||{};const labels={english_focus:'영어 중심',english_only:'영어만',balanced:'다국어 균형',custom:'직접 비중'};
  const summaryData=dataset.collectionSummary||{},active=(cp.activeLanguages||[]).join(', ')||'미표시',dup=Number(summaryData.duplicateCandidatesSuppressed)||0;
- const ref=dataset.referenceSummary||{},api=dataset.apiUsage||{};
- summary.innerHTML=`<summary>이번 수집 경로 보기 · 검색 주제 ${plans.length}개 / 출처 채널 ${channels.length}개</summary><p><strong>수집 언어:</strong> ${esc(labels[cp.preset]||'이전 방식')} · 이번 실행 언어 ${esc(active)} · ${esc(cp.retryRound||1)}차 탐색 · 이전 수집 ID ${esc(cp.excludedPreviousIds||0)}개 제외</p><p><strong>좋아요 반영:</strong> 씨앗 영상 ${esc(ref.seedResolved||0)}/${esc(ref.seedRequested||0)}개 확인 · 씨앗 채널 ${esc(ref.seedChannels||0)}개. 좋아요 영상 자체를 재추천하지 않고 해당 채널의 다른 업로드를 탐색합니다.</p><ul>${lines}</ul><p>채널 업로드 ${scanned}건을 조회했습니다. 정확한 영상 ID와 제목이 거의 같은 재업로드 후보 <strong>${esc(dup)}개</strong>를 중복 억제했습니다. 중복 판단은 보수적인 메타데이터 비교이며 영상 장면 자체를 비교한 것은 아닙니다.</p><p><strong>API 사용:</strong> 이번 실행 search.list ${esc(api.searchListCalls??'—')}회 · 기타 조회 ${esc(api.otherCalls??'—')}회. 전체 일일 잔여량은 Google Cloud에서 확인해야 합니다.</p><p>중복·길이·공개 조건을 거친 뒤 화면 필터를 적용합니다. 채널이 같다고 감동결이 같다고 판단하지 않습니다. 첨부 영상과 닮지 않은 새 소재도 계속 찾습니다.</p>`;
+ const ref=dataset.referenceSummary||{},api=dataset.apiUsage||{},cats=summaryData.sourceCategoryCounts||{};
+ const raw=Number(summaryData.rawAfterSafetyCap??summaryData.eligibleBeforeCap??dataset.videos.length)||0,kept=Number(summaryData.kept??dataset.videos.length)||0,reserve=Number(summaryData.reserveCount)||0;
+ const pool=`원본 후보 ${raw}개 → 이번 검토 풀 ${kept}개${reserve?` · 예비 ${reserve}개`:''}`;
+ const policy=summaryData.perChannelLimit?`한 채널 최대 ${summaryData.perChannelLimit}개 · 씨앗 출처 최대 ${summaryData.seedPoolPercent}% · 참고 출처 최대 ${summaryData.referencePoolPercent}%`:'';
+ const mix=`검색 ${Number(cats.guided||0)+Number(cats.explore||0)} · 씨앗 ${Number(cats.seed||0)} · 참고 ${Number(cats.reference||0)} · 기타 ${Number(cats.configured||0)+Number(cats.other||0)}`;
+ summary.innerHTML=`<summary>이번 수집 경로 보기 · ${esc(pool)}</summary><p><strong>검토 풀:</strong> ${esc(pool)}${policy?' · '+esc(policy):''}<br><strong>출처 구성:</strong> ${esc(mix)}. 씨앗/참고 비중은 상한이며 검색 후보가 부족하면 전체 표시 수가 목표보다 적을 수 있습니다.</p><p><strong>수집 언어:</strong> ${esc(labels[cp.preset]||'이전 방식')} · 이번 실행 언어 ${esc(active)} · ${esc(cp.retryRound||1)}차 탐색 · 이전 수집 ID ${esc(cp.excludedPreviousIds||0)}개 제외</p><p><strong>좋아요 반영:</strong> 씨앗 영상 ${esc(ref.seedResolved||0)}/${esc(ref.seedRequested||0)}개 확인 · 씨앗 채널 ${esc(ref.seedChannels||0)}개. 좋아요 영상 자체를 재추천하지 않고 해당 채널의 다른 업로드를 탐색합니다.</p><ul>${lines}</ul><p>채널 업로드 ${scanned}건을 조회했습니다. 정확한 영상 ID와 제목이 거의 같은 재업로드 후보 <strong>${esc(dup)}개</strong>를 중복 억제했습니다. 중복 판단은 보수적인 메타데이터 비교이며 영상 장면 자체를 비교한 것은 아닙니다.</p><p><strong>API 사용:</strong> 이번 실행 search.list ${esc(api.searchListCalls??'—')}회 · 기타 조회 ${esc(api.otherCalls??'—')}회. 전체 일일 잔여량은 Google Cloud에서 확인해야 합니다.</p><p>1.6에서는 원본 후보 전체를 숙제로 보여주지 않고, 출처·채널 쏠림을 줄인 검토 풀만 표시합니다. 화면 필터는 이 검토 풀 안에서 다시 적용됩니다.</p>`;
 }
 function originPanel(v,r){
  if(sample(v))return '';
@@ -207,8 +211,8 @@ function applyDeployment(data){
  dataset=data;
  const stale=data.mode==='live'&&(!Number.isFinite(Date.parse(data.generatedAt))||Date.now()-Date.parse(data.generatedAt)>C.MAX_AGE);
  if(stale){dataset={...data,videos:[]};warn('수집 정보가 29일을 넘겨 표시하지 않습니다. GitHub Actions에서 live로 다시 수집해 주세요.');}
- else{$('#notice').classList.remove('error');$('#notice').textContent=data.mode==='demo'?'샘플 모드입니다. 제목·조회수는 기능 확인용 가상 데이터이며 실제 영상이 아닙니다. API 키를 등록하고 live로 실행하면 실제 목록으로 바뀝니다.':(data.warnings||[]).length?'수집 안내: '+data.warnings.join(' / '):'1.5.1 · 새 Actions 실행 뒤 Pages 배포가 실제로 바뀌었는지 확인합니다. 후보 풀·좋아요 씨앗 기능은 1.5와 같습니다.';}
- if(data.mode==='live'&&data.collectorVersion!=='1.5')warn('앱은 1.5.1이지만 수집 데이터는 이전 버전입니다. Actions에서 새 main / live 실행이 필요합니다.');
+ else{$('#notice').classList.remove('error');$('#notice').textContent=data.mode==='demo'?'샘플 모드입니다. 제목·조회수는 기능 확인용 가상 데이터이며 실제 영상이 아닙니다. API 키를 등록하고 live로 실행하면 실제 목록으로 바뀝니다.':(data.warnings||[]).length?'수집 안내: '+data.warnings.join(' / '):'1.6 · 후보 수를 늘리는 대신 한 채널·씨앗 출처 쏠림을 제한한 검토 풀을 보여줍니다.';}
+ if(data.mode==='live'&&data.collectorVersion!=='1.6')warn('앱은 1.6이지만 수집 데이터는 이전 버전입니다. Actions에서 새 main / live 실행이 필요합니다.');
  for(const v of dataset.videos){if(state.records[v.id]&&v.fetchedAt)state.records[v.id].cache=v;}
  state=C.normalize(state);persist();$('#mode').textContent=data.mode==='live'?'YouTube 연결':'SAMPLE';$('#mode').classList.toggle('live',data.mode==='live');
  const round=data.collectionPlan?.retryRound||'—';

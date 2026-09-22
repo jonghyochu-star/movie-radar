@@ -127,7 +127,7 @@ class TestCollect(unittest.TestCase):
                         if v['id']==HIDDEN:v['snippet']['defaultAudioLanguage']='hi'
                 return data
         out=m.collect(Mixed(),self.config())
-        self.assertEqual(out['collectorVersion'],'1.5')
+        self.assertEqual(out['collectorVersion'],'1.6')
         missing=next(v for v in out['videos'] if v['id']==GOOD)
         audio=next(v for v in out['videos'] if v['id']==HIDDEN)
         self.assertEqual((missing['language'],missing['declaredLanguage'],missing['languageSource']),('unknown','en','unknown'))

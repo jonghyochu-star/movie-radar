@@ -115,10 +115,25 @@ def validate_discovery(raw):
     seed_limit=raw.get('seed_channel_limit',4)
     if type(seed_limit) is not int or not 1<=seed_limit<=4:
         raise ValueError('seed_channel_limit는 1~4여야 합니다.')
+    review_pool_limit=raw.get('review_pool_limit',48)
+    if type(review_pool_limit) is not int or not 12<=review_pool_limit<=80:
+        raise ValueError('review_pool_limit는 12~80 정수여야 합니다.')
+    per_channel_limit=raw.get('per_channel_limit',4)
+    if type(per_channel_limit) is not int or not 1<=per_channel_limit<=10:
+        raise ValueError('per_channel_limit는 1~10 정수여야 합니다.')
+    seed_pool_percent=raw.get('seed_pool_percent',30)
+    reference_pool_percent=raw.get('reference_pool_percent',15)
+    for name,value,high in [('seed_pool_percent',seed_pool_percent,50),('reference_pool_percent',reference_pool_percent,40)]:
+        if type(value) is not int or not 0<=value<=high:
+            raise ValueError(f'{name} 범위를 확인하세요.')
+    if seed_pool_percent+reference_pool_percent>60:
+        raise ValueError('씨앗+참고 채널 비중 상한 합계는 60% 이하여야 합니다.')
     return {'schema':1,'enabled':raw.get('enabled',True),'profiles':profiles,
             'reference_video_ids':list(dict.fromkeys(refs)),
             'reference_pages_per_channel':pages,'reference_channel_limit':limit,
-            'seed_pages_per_channel':seed_pages,'seed_channel_limit':seed_limit}
+            'seed_pages_per_channel':seed_pages,'seed_channel_limit':seed_limit,
+            'review_pool_limit':review_pool_limit,'per_channel_limit':per_channel_limit,
+            'seed_pool_percent':seed_pool_percent,'reference_pool_percent':reference_pool_percent}
 
 
 def select_profiles(c, rotation=0, preset='english_focus', custom_weights='', retry_round=1):
@@ -193,3 +208,68 @@ def diverse_snapshot(items, limit):
         if not added:break
         index+=1
     return result
+
+
+def source_category(video):
+    """Classify how a candidate reached the collector.
+    Search-discovered items outrank source-channel provenance so a video that was
+    independently found by search does not consume the seed/reference allowance.
+    """
+    routes=set(video.get('discoveryRoutes') or [])
+    kinds=set(video.get('sourceKinds') or [])
+    if routes & {'familiar','expand'}: return 'guided'
+    if routes & {'open','work','legacy','direct'}: return 'explore'
+    if 'seed' in kinds: return 'seed'
+    if 'reference' in kinds: return 'reference'
+    if 'configured' in kinds: return 'configured'
+    return 'other'
+
+def _review_priority(video):
+    subs=video.get('subscribers')
+    if isinstance(subs,(int,float)) and not isinstance(subs,bool):
+        band=0 if subs<=5000 else 1 if subs<=10000 else 2
+    else:
+        band=3
+    views=video.get('views') if isinstance(video.get('views'),(int,float)) else -1
+    return (band,-views,str(video.get('id','')))
+
+def select_review_pool(items, limit=48, per_channel_limit=4, seed_percent=30, reference_percent=15):
+    """Return a bounded, channel-diverse review set.
+
+    The source-channel caps are hard maxima. Search-discovered candidates are
+    intentionally preferred for the remaining slots. This is a diversity policy,
+    not a quality score and it never invents candidates.
+    """
+    limit=max(1,int(limit));per_channel_limit=max(1,int(per_channel_limit))
+    seed_cap=(limit*max(0,int(seed_percent)))//100
+    reference_cap=(limit*max(0,int(reference_percent)))//100
+    buckets={k:[] for k in ['guided','explore','seed','reference','configured','other']}
+    for v in sorted(items,key=_review_priority):
+        buckets.setdefault(source_category(v),[]).append(v)
+    # Search lanes get most turns; source channels are deliberately occasional.
+    cycle=['guided','explore','guided','seed','explore','guided','reference','explore','configured','other']
+    index={k:0 for k in buckets};chosen=[];chosen_ids=set();channel_counts={};cat_counts={k:0 for k in buckets}
+    caps={'seed':seed_cap,'reference':reference_cap}
+    def take(category):
+        if category in caps and cat_counts.get(category,0)>=caps[category]: return False
+        rows=buckets.get(category,[])
+        i=index.get(category,0)
+        while i<len(rows):
+            v=rows[i];i+=1;index[category]=i
+            vid=v.get('id');cid=v.get('channelId') or vid
+            if vid in chosen_ids: continue
+            if channel_counts.get(cid,0)>=per_channel_limit: continue
+            chosen.append(v);chosen_ids.add(vid);channel_counts[cid]=channel_counts.get(cid,0)+1
+            cat_counts[category]=cat_counts.get(category,0)+1
+            return True
+        return False
+    while len(chosen)<limit:
+        progress=False
+        for category in cycle:
+            if len(chosen)>=limit: break
+            progress=take(category) or progress
+        if not progress: break
+    # Fill any remaining room from search/other pools first, still respecting channel/source caps.
+    for category in ['guided','explore','configured','other','seed','reference']:
+        while len(chosen)<limit and take(category): pass
+    return chosen
