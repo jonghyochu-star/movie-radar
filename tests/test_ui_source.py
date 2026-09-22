@@ -20,9 +20,17 @@ class UiSourceTests(unittest.TestCase):
             self.assertNotEqual(pos,-1,control)
             snippet=html[max(0,pos-160):pos+500]
             self.assertIn('title=',snippet,control)
-    def test_version_is_16(self):
+    def test_version_is_161(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-        self.assertIn('version">1.6<',html)
+        self.assertIn('version">1.6.1<',html)
+
+
+    def test_broad_candidate_button_exists(self):
+        html=(ROOT/'site/index.html').read_text(encoding='utf-8')
+        app=(ROOT/'site/app.js').read_text(encoding='utf-8')
+        self.assertIn('id="broad-filters"',html)
+        self.assertIn('전체 후보 보기',html)
+        self.assertIn("C.broadFilters()",app)
 
     def test_seed_copy_and_quota_summary_present(self):
         app=(ROOT/'site/app.js').read_text(encoding='utf-8')

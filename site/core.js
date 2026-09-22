@@ -128,13 +128,14 @@
     return {code,source,basis,badge,audio,declared};
   }
   const preferredLanguages=()=>['en','ja','es','pt','fr','de','it','zh'];
-  const defaultFilters=()=>({schema:1,maxSubscribers:10000,minSeconds:0,maxSeconds:180,minViews:100000,content:'screen',languages:preferredLanguages(),includeUnknownLanguage:false,balance:true,route:'all',mixDiscovery:true,shorts:'any'});
+  const defaultFilters=()=>({schema:1,maxSubscribers:10000,minSeconds:0,maxSeconds:180,minViews:100000,content:'review',languages:preferredLanguages(),includeUnknownLanguage:true,balance:true,route:'all',mixDiscovery:true,shorts:'any'});
+  const broadFilters=()=>({schema:1,maxSubscribers:0,minSeconds:0,maxSeconds:180,minViews:0,content:'all',languages:Object.keys(LANGUAGE_LABELS).filter(x=>x!=='unknown'),includeUnknownLanguage:true,balance:true,route:'all',mixDiscovery:true,shorts:'any'});
   function normalizeFilters(raw={}) {
     const f=defaultFilters(), numberKeys={maxSubscribers:[0,1000000000],minSeconds:[0,180],maxSeconds:[0,180],minViews:[0,100000000000]};
     for(const [k,[lo,hi]] of Object.entries(numberKeys)) if(Number.isInteger(raw[k])&&raw[k]>=lo&&raw[k]<=hi)f[k]=raw[k];
     // Empty/invalid UI inputs never make NaN comparisons silently accept data.
     if(f.minSeconds>f.maxSeconds){f.minSeconds=0;f.maxSeconds=180;}
-    if(['screen','film','all'].includes(raw.content))f.content=raw.content;
+    if(['review','screen','film','all'].includes(raw.content))f.content=raw.content;
     if(Array.isArray(raw.languages))f.languages=[...new Set(raw.languages.filter(x=>typeof x==='string'&&x!=='unknown'&&Object.hasOwn(LANGUAGE_LABELS,x)))];
     if(raw.route==='all'||Object.hasOwn(ROUTE_LABELS,raw.route))f.route=raw.route;
     if(['any','hinted','confirmed'].includes(raw.shorts))f.shorts=raw.shorts;
@@ -152,6 +153,7 @@
     const reasons=[],kind=screenKind(v,r),format=shortsInfo(v,r).status;
     if(f.route&&f.route!=='all'&&!routesOf(v).includes(f.route))reasons.push('route');
     if(format==='not_short'||(f.shorts==='hinted'&&!['hint','confirmed'].includes(format))||(f.shorts==='confirmed'&&format!=='confirmed'))reasons.push('format');
+    if(f.content==='review'&&kind==='non_screen')reasons.push('content');
     if(f.content==='screen'&&!['film','series','user_screen'].includes(kind))reasons.push('content');
     if(f.content==='film'&&kind!=='film')reasons.push('content');
     if(f.maxSubscribers>0&&!(Number.isFinite(v.subscribers)&&v.subscribers>=0&&v.subscribers<=f.maxSubscribers))reasons.push('subscribers');
@@ -212,5 +214,5 @@
     return roundRobin([...groups.values()].map(g=>balanceLanguage?balanceVideos(g,languageOrder):g));
   }
 
-  return {formatOf, shortsInfo, routesOf, ROUTE_LABELS, mixRoutes, recordBatchFeedback, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
+  return {formatOf, shortsInfo, routesOf, ROUTE_LABELS, mixRoutes, recordBatchFeedback, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, broadFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
 });

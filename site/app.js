@@ -3,7 +3,7 @@ const C=MovieCore, $=s=>document.querySelector(s);
 const prefix='movie-radar:v1:'+location.pathname.replace(/index\.html$/,'');
 const key=prefix+':records', consentKey=prefix+':consent';
 let storageBlocked=false;
-const filterKey=prefix+':filters-v1.2', collectionKey=prefix+':collection-v1.4';
+const filterKey=prefix+':filters-v1.6.1', collectionKey=prefix+':collection-v1.4';
 let filters=C.defaultFilters();
 const defaultCollectionPrefs=()=>({preset:'english_focus',customWeights:'en:70,ja:5,es:5,pt:5,fr:5,de:4,it:3,zh-Hans:3',retryRound:1});
 let collectionPrefs=defaultCollectionPrefs();
@@ -211,8 +211,8 @@ function applyDeployment(data){
  dataset=data;
  const stale=data.mode==='live'&&(!Number.isFinite(Date.parse(data.generatedAt))||Date.now()-Date.parse(data.generatedAt)>C.MAX_AGE);
  if(stale){dataset={...data,videos:[]};warn('수집 정보가 29일을 넘겨 표시하지 않습니다. GitHub Actions에서 live로 다시 수집해 주세요.');}
- else{$('#notice').classList.remove('error');$('#notice').textContent=data.mode==='demo'?'샘플 모드입니다. 제목·조회수는 기능 확인용 가상 데이터이며 실제 영상이 아닙니다. API 키를 등록하고 live로 실행하면 실제 목록으로 바뀝니다.':(data.warnings||[]).length?'수집 안내: '+data.warnings.join(' / '):'1.6 · 후보 수를 늘리는 대신 한 채널·씨앗 출처 쏠림을 제한한 검토 풀을 보여줍니다.';}
- if(data.mode==='live'&&data.collectorVersion!=='1.6')warn('앱은 1.6이지만 수집 데이터는 이전 버전입니다. Actions에서 새 main / live 실행이 필요합니다.');
+ else{$('#notice').classList.remove('error');$('#notice').textContent=data.mode==='demo'?'샘플 모드입니다. 제목·조회수는 기능 확인용 가상 데이터이며 실제 영상이 아닙니다. API 키를 등록하고 live로 실행하면 실제 목록으로 바뀝니다.':(data.warnings||[]).length?'수집 안내: '+data.warnings.join(' / '):'1.6.1 · 영화 단서 미확인을 기본에서 숨기지 않고, 오래된 수집 이력 때문에 새 후보가 마르는 현상을 줄였습니다.';}
+ if(data.mode==='live'&&data.collectorVersion!=='1.6.1')warn('앱은 1.6.1이지만 수집 데이터는 이전 버전입니다. Actions에서 새 main / live 실행이 필요합니다.');
  for(const v of dataset.videos){if(state.records[v.id]&&v.fetchedAt)state.records[v.id].cache=v;}
  state=C.normalize(state);persist();$('#mode').textContent=data.mode==='live'?'YouTube 연결':'SAMPLE';$('#mode').classList.toggle('live',data.mode==='live');
  const round=data.collectionPlan?.retryRound||'—';
@@ -267,7 +267,8 @@ $('#open-actions').onclick=()=>{const u=repoActionsUrl();if(u)window.open(u,'_bl
 $('#copy-seeds').onclick=copySeedIds;
 $('#find-more').onclick=async()=>{const current=Number(dataset.collectionPlan?.retryRound)||collectionPrefs.retryRound||1;collectionPrefs.retryRound=Math.min(3,current+1);saveCollectionPrefs();const u=repoActionsUrl();if(u)window.open(u,'_blank','noopener');await copyCollectionInstruction();};
 $('#no-harvest').onclick=()=>{if(dataset.mode!=='live'||!dataset.generatedAt){toast('실제 수집 목록에서만 수확 없음 기록을 남길 수 있습니다.');return;}const current=Number(dataset.collectionPlan?.retryRound)||collectionPrefs.retryRound||1;state=C.recordBatchFeedback(state,dataset.generatedAt,'no_harvest',current);persist();collectionPrefs.retryRound=Math.min(3,current+1);saveCollectionPrefs();toast(`이번 수집을 ‘수확 없음’으로 기록했습니다. 다음은 ${collectionPrefs.retryRound}차 재탐색을 추천합니다.`);};
-$('#reset-filters').onclick=()=>{filters=C.defaultFilters();saveFilters();toast('구독자 1만 이하·10만 조회 이상·3분 이하·우선 언어·영화/드라마 단서로 돌아왔습니다.');};
+$('#reset-filters').onclick=()=>{filters=C.defaultFilters();saveFilters();toast('추천 기준으로 돌아왔습니다. 1만 이하·10만 조회 이상은 유지하되 영화/드라마 단서 미확인은 숨기지 않습니다.');};
+$('#broad-filters').onclick=()=>{filters=C.broadFilters();saveFilters();toast('전체 후보 보기로 전환했습니다. 수집된 후보를 진단할 때 쓰며, 다음 수집 설정은 바뀌지 않습니다.');};
 function start(){loadState();loadFilters();loadCollectionPrefs();render();refresh(false);}
 $('#consent').onclick=()=>{try{localStorage.setItem(consentKey,'yes');}catch{}$('#consent-dialog').close();start();};
 let consent=false;try{consent=localStorage.getItem(consentKey)==='yes';}catch{}if(consent)start();else $('#consent-dialog').showModal();

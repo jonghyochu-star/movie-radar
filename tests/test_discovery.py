@@ -148,7 +148,7 @@ class DiscoveryTests(unittest.TestCase):
         for n in [1,2,3]:
             c['queries_per_run']=n;out=select_profiles(c,0);self.assertEqual(len(out),n);self.assertIn('open',[p['lane'] for p in out])
     def test_snapshot_metadata_has_new_version(self):
-        out=m.collect(Fake(),self.config());self.assertEqual(out['collectorVersion'],'1.6')
+        out=m.collect(Fake(),self.config());self.assertEqual(out['collectorVersion'],'1.6.1')
         self.assertEqual(out['collectionSummary']['kept'],len(out['videos']))
         self.assertLessEqual(len(out['videos']),48)
 

@@ -28,6 +28,16 @@ from discovery import validate_discovery, select_profiles, shorts_hint, diverse_
 
 CHANNEL = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
 
+RECENT_HISTORY_LIMIT = 400
+RECENT_FINGERPRINT_LIMIT = 400
+
+def ordered_video_ids(values, limit=RECENT_HISTORY_LIMIT):
+    out=[]
+    for value in values or []:
+        if isinstance(value,str) and ID.fullmatch(value) and value not in out:
+            out.append(value)
+    return out[-max(1,int(limit)):]
+
 class CollectionError(Exception):
     """Safe error message: never include request URL / credentials."""
     def __init__(self, message, reason=''):
@@ -212,20 +222,20 @@ def near_duplicate(tokens, previous):
         if inter>=4 and union and inter/union>=0.82:return True
     return False
 
-def load_cache_history(path, id_limit=5000, fp_limit=2500):
+def load_cache_history(path, id_limit=RECENT_HISTORY_LIMIT, fp_limit=RECENT_FINGERPRINT_LIMIT):
     if not path:return set(),[]
     try:
         raw=json.loads(Path(path).read_text(encoding='utf-8'))
         ids=[x for x in raw.get('ids',[]) if isinstance(x,str) and ID.fullmatch(x)]
         fps=[x for x in raw.get('fingerprints',[]) if isinstance(x,list) and all(isinstance(t,str) and re.fullmatch(r'[0-9a-f]{12}',t) for t in x)]
-        return set(ids[-id_limit:]),fps[-fp_limit:]
+        return ordered_video_ids(ids,id_limit),fps[-fp_limit:]
     except (OSError,ValueError,TypeError):
         return set(),[]
 
-def save_cache_history(path, ids, fingerprints, id_limit=5000, fp_limit=2500):
+def save_cache_history(path, ids, fingerprints, id_limit=RECENT_HISTORY_LIMIT, fp_limit=RECENT_FINGERPRINT_LIMIT):
     if not path:return
     target=Path(path);target.parent.mkdir(parents=True,exist_ok=True)
-    payload={'schema':1,'ids':list(dict.fromkeys(ids))[-id_limit:],'fingerprints':list(fingerprints)[-fp_limit:]}
+    payload={'schema':2,'ids':ordered_video_ids(ids,id_limit),'fingerprints':list(fingerprints)[-fp_limit:]}
     tmp=target.with_suffix('.tmp');tmp.write_text(json.dumps(payload,separators=(',',':')),encoding='utf-8');tmp.replace(target)
 
 def prior_pages_url(repository):
@@ -234,7 +244,7 @@ def prior_pages_url(repository):
     owner,repo=repository.split('/',1)
     return f"https://{owner}.github.io/{repo}/data/videos.json"
 
-def load_prior_history(repository, limit=5000, fp_limit=800):
+def load_prior_history(repository, limit=RECENT_HISTORY_LIMIT, fp_limit=RECENT_FINGERPRINT_LIMIT):
     """Read prior public IDs and irreversible title fingerprints as a fallback.
     The Actions cache is the primary immediate retry memory; Pages is a second source.
     """
@@ -253,7 +263,7 @@ def load_prior_history(repository, limit=5000, fp_limit=800):
                 fp=title_token_hashes(v.get('title',''))
                 if fp:fps.append(fp)
             fps.extend(x for x in data.get('collectorRecentFingerprints',[]) if isinstance(x,list) and all(isinstance(t,str) and re.fullmatch(r'[0-9a-f]{12}',t) for t in x))
-        return set(list(dict.fromkeys(ids))[-limit:]), fps[-fp_limit:], None
+        return ordered_video_ids(ids,limit), fps[-fp_limit:], None
     except Exception:
         return set(), [], '이전 배포 목록을 읽지 못했습니다. Actions 캐시가 있으면 그 기록으로 중복을 제외합니다.'
 
@@ -280,8 +290,9 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
     stamp = timestamp(now)
     found, routes, source_kinds = {}, {}, {}
     warnings = []
-    excluded_ids=set(excluded_ids or [])
-    excluded_fingerprints=list(excluded_fingerprints or [])
+    excluded_order=ordered_video_ids(excluded_ids or [],RECENT_HISTORY_LIMIT)
+    excluded_ids=set(excluded_order)
+    excluded_fingerprints=list(excluded_fingerprints or [])[-RECENT_FINGERPRINT_LIMIT:]
     try: collection_plan=parse_collection_plan(collection_preset,custom_weights)
     except ValueError as exc: raise CollectionError('수집 언어 설정 오류: '+str(exc)) from None
     allowed_output={'zh-Hans':'zh','zh-Hant':'zh',**{x:x for x in ['en','ja','es','pt','fr','de','it']}}
@@ -378,7 +389,7 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
                                  'scannedUploads':scanned,'referenceSource':cid in reference_channels,
                                  'likedSeedSource':cid in seed_channels})
     for vid in c['video_ids']:add(vid,'설정 파일에서 지정한 영상','direct','direct')
-    base={'schema':1,'mode':'live','generatedAt':stamp,'collectorVersion':'1.6',
+    base={'schema':1,'mode':'live','generatedAt':stamp,'collectorVersion':'1.6.1',
           'reviewPolicy':'manual-original-country-v1','warnings':warnings,
           'searchQueries':query_names,'searchLanguages':languages,
           'collectionPlan':{'preset':collection_plan['preset'],'weights':collection_plan['weights'],
@@ -391,7 +402,7 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
           'shortsPolicy':'publisher-hint-or-user-confirmation-only'}
     if not found:
         base['warnings'].append('검색 결과가 없습니다. 참고 출처와 검색어·기간을 확인하세요.')
-        return {**base,'collectorHistoryIds':list(excluded_ids)[-5000:],'collectorRecentFingerprints':[],'videos':[]}
+        return {**base,'collectorHistoryIds':excluded_order,'collectorRecentFingerprints':[],'videos':[]}
     raw_videos=[]
     for batch in chunks(found):
         raw_videos.extend(api.get('videos',part='snippet,statistics,contentDetails,status,topicDetails',id=','.join(batch)).get('items',[]))
@@ -458,7 +469,7 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
         'maxPerChannelObserved':max(channel_counts.values(),default=0),'sourceCategoryCounts':category_counts,
         'routeCounts':{lane:sum(lane in v['discoveryRoutes'] for v in result) for lane in LABELS},
         'note':'원본 후보를 버린 것이 아니라 검토 부담을 줄이기 위해 출처·채널 쏠림을 제한한 공개 검토 풀입니다. 씨앗/참고 채널 비중은 상한이며 검색 후보가 부족하면 표시 수가 목표보다 적을 수 있습니다.'}
-    history=list(dict.fromkeys([*excluded_ids,*[v['id'] for v in result]]))[-5000:]
+    history=ordered_video_ids([*excluded_order,*[v['id'] for v in result]],RECENT_HISTORY_LIMIT)
     return {**base,'collectorHistoryIds':history,'collectorRecentFingerprints':accepted_fingerprints[-800:],'videos':result}
 
 def main():
@@ -483,11 +494,12 @@ def main():
         page_ids,page_fps,prior_warning=load_prior_history(os.environ.get('GITHUB_REPOSITORY',''))
         cache_path=os.environ.get('COLLECT_HISTORY_PATH','').strip()
         cache_ids,cache_fps=load_cache_history(cache_path)
-        prior=set(page_ids)|set(cache_ids)
-        fingerprints=[*cache_fps,*page_fps]
+        prior_order=ordered_video_ids([*cache_ids,*page_ids],RECENT_HISTORY_LIMIT)
+        prior=set(prior_order)
+        fingerprints=[*cache_fps,*page_fps][-RECENT_FINGERPRINT_LIMIT:]
         trigger=os.environ.get('COLLECTION_TRIGGER','manual')
         data=collect(api,c,rotation,collection_preset=args.collect_preset,custom_weights=args.custom_weights,
-                     retry_round=args.retry_round,excluded_ids=prior,excluded_fingerprints=fingerprints,trigger=trigger,
+                     retry_round=args.retry_round,excluded_ids=prior_order,excluded_fingerprints=fingerprints,trigger=trigger,
                      seed_video_ids=args.seed_video_ids)
         data['apiUsage']={'searchListCalls':api.calls.get('search',0),
                           'otherCalls':sum(v for k,v in api.calls.items() if k!='search'),

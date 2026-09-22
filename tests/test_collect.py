@@ -127,7 +127,7 @@ class TestCollect(unittest.TestCase):
                         if v['id']==HIDDEN:v['snippet']['defaultAudioLanguage']='hi'
                 return data
         out=m.collect(Mixed(),self.config())
-        self.assertEqual(out['collectorVersion'],'1.6')
+        self.assertEqual(out['collectorVersion'],'1.6.1')
         missing=next(v for v in out['videos'] if v['id']==GOOD)
         audio=next(v for v in out['videos'] if v['id']==HIDDEN)
         self.assertEqual((missing['language'],missing['declaredLanguage'],missing['languageSource']),('unknown','en','unknown'))
@@ -171,5 +171,10 @@ class TestCollect(unittest.TestCase):
             p=Path(d)/'history.json';fp=m.title_token_hashes('A father gives her a second chance tonight')
             m.save_cache_history(p,[GOOD],[fp]);ids,fps=m.load_cache_history(p)
             self.assertIn(GOOD,ids);self.assertEqual(fps,[fp])
+    def test_recent_history_is_bounded_and_ordered(self):
+        ids=[('A'+format(i,'010d'))[-11:] for i in range(450)]
+        kept=m.ordered_video_ids(ids)
+        self.assertEqual(len(kept),m.RECENT_HISTORY_LIMIT)
+        self.assertEqual(kept,ids[-m.RECENT_HISTORY_LIMIT:])
 
 if __name__=='__main__':unittest.main()
