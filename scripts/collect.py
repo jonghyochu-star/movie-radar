@@ -288,7 +288,7 @@ def parse_seed_video_ids(value, limit=8):
 def collect(api, c, rotation=0, now=None, collection_preset='english_focus', custom_weights='', retry_round=1, excluded_ids=None, excluded_fingerprints=None, trigger='manual', seed_video_ids=None):
     now = now or datetime.now(timezone.utc)
     stamp = timestamp(now)
-    found, routes, source_kinds, topic_gates = {}, {}, {}, {}
+    found, routes, source_kinds, topic_gates, discovery_labels = {}, {}, {}, {}, {}
     warnings = []
     excluded_order=ordered_video_ids(excluded_ids or [],RECENT_HISTORY_LIMIT)
     excluded_ids=set(excluded_order)
@@ -301,12 +301,13 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
     reference_ids=plan['reference_video_ids'] if plan else []
     seed_ids=parse_seed_video_ids(seed_video_ids)
     blocked_seed_ids=set(reference_ids)|set(seed_ids)
-    def add(vid, source, route='legacy', source_kind='search', screen_topic=None):
+    def add(vid, source, route='legacy', source_kind='search', screen_topic=None, discovery_label=''):
         if isinstance(vid,str) and ID.fullmatch(vid) and vid not in blocked_seed_ids and vid not in excluded_ids:
-            found.setdefault(vid,[]);routes.setdefault(vid,[]);source_kinds.setdefault(vid,[]);topic_gates.setdefault(vid,[])
+            found.setdefault(vid,[]);routes.setdefault(vid,[]);source_kinds.setdefault(vid,[]);topic_gates.setdefault(vid,[]);discovery_labels.setdefault(vid,[])
             if source not in found[vid]:found[vid].append(source)
             if route not in routes[vid]:routes[vid].append(route)
             if source_kind not in source_kinds[vid]:source_kinds[vid].append(source_kind)
+            if isinstance(discovery_label,str) and discovery_label.strip() and discovery_label.strip() not in discovery_labels[vid]:discovery_labels[vid].append(discovery_label.strip()[:80])
             if screen_topic in SCREEN_TOPIC_IDS and screen_topic not in topic_gates[vid]:topic_gates[vid].append(screen_topic)
     selected=select_profiles(c,rotation,collection_preset,custom_weights,retry_round)
     query_names=[entry['q'] for entry in selected]
@@ -337,7 +338,7 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
             for item in result.get('items',[]):
                 add(item.get('id',{}).get('videoId'),
                     f"{LABELS[profile['lane']]} / {profile['label']} · {topic_label or '일반'} 주제 검색 · {scope}",
-                    profile['lane'],'search',screen_topic)
+                    profile['lane'],'search',screen_topic,profile['label'])
     # Resolve fixed references and explicit liked-video seeds at runtime.
     # Likes are browser-local; only IDs the user deliberately passes to Actions are used here.
     reference_channels=[];seed_channels=[];resolved_reference_ids=[];resolved_seed_ids=[]
@@ -395,7 +396,7 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
                                  'scannedUploads':scanned,'referenceSource':cid in reference_channels,
                                  'likedSeedSource':cid in seed_channels})
     for vid in c['video_ids']:add(vid,'설정 파일에서 지정한 영상','direct','direct')
-    base={'schema':1,'mode':'live','generatedAt':stamp,'collectorVersion':'1.7',
+    base={'schema':1,'mode':'live','generatedAt':stamp,'collectorVersion':'1.8',
           'reviewPolicy':'manual-original-country-v1','warnings':warnings,
           'searchQueries':query_names,'searchLanguages':languages,
           'collectionPlan':{'preset':collection_plan['preset'],'weights':collection_plan['weights'],
@@ -462,11 +463,11 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
                        'declaredLanguage':lang['declared'],'languageSource':lang['source'],
                        'titleLanguage':lang['titleCode'],'titleLanguageBasis':lang['titleBasis'],
                        'screenKind':evidence['kind'],'screenReason':evidence['reason'],
-                       'metadataVersion':'1.7','id':vid,'title':s.get('title',''),'channelTitle':s.get('channelTitle',''),'channelId':cid,
+                       'metadataVersion':'1.8','id':vid,'title':s.get('title',''),'channelTitle':s.get('channelTitle',''),'channelId':cid,
                        'views':number(st.get('viewCount')),'subscribers':subscribers.get(cid),
                        'publishedAt':s.get('publishedAt'),'fetchedAt':stamp,'durationSeconds':seconds,
                        'thumbnail':thumb,'originalStatus':'unverified','source':' / '.join(found.get(vid,[])[:2]),
-                       'discoveryRoutes':routes.get(vid,[]),'sourceKinds':source_kinds.get(vid,[]),'screenGate':screen_gate,
+                       'discoveryRoutes':routes.get(vid,[]),'discoveryLabels':discovery_labels.get(vid,[]),'sourceKinds':source_kinds.get(vid,[]),'screenGate':screen_gate,
                        'shortsHint':shorts_hint(s)})
     eligible_count=len(result)
     result=diverse_snapshot(result,c['max_videos'])

@@ -20,9 +20,9 @@ class UiSourceTests(unittest.TestCase):
             self.assertNotEqual(pos,-1,control)
             snippet=html[max(0,pos-160):pos+500]
             self.assertIn('title=',snippet,control)
-    def test_version_is_17(self):
+    def test_version_is_18(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-        self.assertIn('version">1.7<',html)
+        self.assertIn('version">1.8<',html)
 
 
     def test_broad_candidate_button_exists(self):
@@ -53,7 +53,7 @@ class UiSourceTests(unittest.TestCase):
 
     def test_review_pool_summary_is_visible(self):
         app=(ROOT/'site/app.js').read_text(encoding='utf-8')
-        self.assertIn('이번 검토 풀',app)
+        self.assertIn('검토 풀',app)
         self.assertIn('한 채널 최대',app)
         self.assertIn('씨앗 출처 최대',app)
 
@@ -64,8 +64,9 @@ class UiSourceTests(unittest.TestCase):
         css=(ROOT/'site/styles.css').read_text(encoding='utf-8')
         self.assertIn('value="priority"',html)
         self.assertIn('id="taste-assist"',html)
-        self.assertIn('좋아요 취향 반영',html)
-        self.assertIn('candidatePriorityGroup',app)
+        self.assertIn('내 취향 반영',html)
+        self.assertIn('personalizedBlend',app)
+        self.assertIn('preferenceClass',app)
         self.assertIn('priorityPanel',app)
         self.assertIn('.priority-strip',css)
 
@@ -80,3 +81,14 @@ class UiSourceTests(unittest.TestCase):
 
 if __name__=='__main__':
     unittest.main()
+
+# 1.8 regression checks
+def _v18_extra(self):
+    core=(ROOT/'site/core.js').read_text(encoding='utf-8')
+    app=(ROOT/'site/app.js').read_text(encoding='utf-8')
+    html=(ROOT/'site/index.html').read_text(encoding='utf-8')
+    self.assertIn('usableDislikes',core)
+    self.assertIn('personalizedBlend',core)
+    self.assertIn('취향 데이터 좋아요',app)
+    self.assertIn('내 취향 우선',html)
+UiSourceTests.test_v18_like_dislike_learning=_v18_extra

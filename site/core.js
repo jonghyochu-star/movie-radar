@@ -208,26 +208,58 @@
   function routesOf(v={}) {const a=Array.isArray(v.discoveryRoutes)?v.discoveryRoutes.filter(x=>typeof x==='string'&&Object.hasOwn(ROUTE_LABELS,x)):[];return a.length?[...new Set(a)]:['legacy'];}
 
   const TASTE_ROUTES=new Set(['familiar','expand','work','open']);
+  function themesOf(v={}) {
+    const direct=Array.isArray(v.discoveryLabels)?v.discoveryLabels.filter(x=>typeof x==='string'&&x.trim()).map(x=>x.trim().slice(0,80)):[];
+    if(direct.length)return [...new Set(direct)];
+    const text=String(v.source||'');
+    const out=[];
+    const re=/(?:참고 결에서 출발|다른 감동 이야기 탐색|참고 작품에서 출발|새로운 소재 탐색)\s*\/\s*([^·\/\n]{1,80})/g;
+    for(const m of text.matchAll(re)){const x=String(m[1]||'').trim();if(x&&!out.includes(x))out.push(x);}
+    return out;
+  }
+  function _bump(map,key){if(typeof key==='string'&&key)map[key]=(map[key]||0)+1;}
+  function _signal(pos={},neg={},key){const a=Number(pos[key]||0),b=Number(neg[key]||0);return a>b?1:b>a?-1:0;}
   function buildTasteProfile(videos=[],records={}) {
     const byId=new Map((Array.isArray(videos)?videos:[]).filter(v=>v&&typeof v.id==='string').map(v=>[v.id,v]));
-    const channelCounts=Object.create(null),routeCounts=Object.create(null);
-    let likedCount=0,usableLikes=0;
+    const liked={channels:Object.create(null),routes:Object.create(null),themes:Object.create(null)};
+    const disliked={channels:Object.create(null),routes:Object.create(null),themes:Object.create(null)};
+    let likedCount=0,dislikedCount=0,usableLikes=0,usableDislikes=0,excludedFromTaste=0;
     for(const [id,r] of Object.entries(records||{})){
-      if(!r||r.rating!=='like')continue;
-      likedCount++;
-      const v=byId.get(id)||r.cache;
-      if(!v||typeof v!=='object')continue;
-      let used=false;
-      if(typeof v.channelId==='string'&&v.channelId){channelCounts[v.channelId]=(channelCounts[v.channelId]||0)+1;used=true;}
-      for(const route of routesOf(v))if(TASTE_ROUTES.has(route)){routeCounts[route]=(routeCounts[route]||0)+1;used=true;}
-      if(used)usableLikes++;
+      if(!r||!['like','dislike'].includes(r.rating))continue;
+      // Country/format/content exclusions are not preference signals.
+      if(originOf(r)==='korean'||formatOf(r)==='not_short'||mediaOf(r)==='not_screen'){excludedFromTaste++;continue;}
+      const isLike=r.rating==='like'; if(isLike)likedCount++; else dislikedCount++;
+      const v=byId.get(id)||r.cache;if(!v||typeof v!=='object')continue;
+      const bag=isLike?liked:disliked;let used=false;
+      if(typeof v.channelId==='string'&&v.channelId){_bump(bag.channels,v.channelId);used=true;}
+      for(const route of routesOf(v))if(TASTE_ROUTES.has(route)){_bump(bag.routes,route);used=true;}
+      for(const theme of themesOf(v)){_bump(bag.themes,theme);used=true;}
+      if(used){if(isLike)usableLikes++;else usableDislikes++;}
     }
-    return {likedCount,usableLikes,channelCounts,routeCounts};
+    return {likedCount,dislikedCount,usableLikes,usableDislikes,excludedFromTaste,liked,disliked,
+      // Legacy aliases retained for older UI/tests.
+      channelCounts:liked.channels,routeCounts:liked.routes};
+  }
+  function preferenceClass(v={},profile={}) {
+    const liked=profile.liked||{channels:profile.channelCounts||{},routes:profile.routeCounts||{},themes:{}};
+    const disliked=profile.disliked||{channels:{},routes:{},themes:{}};
+    const positives=[],negatives=[];
+    const channel=typeof v.channelId==='string'?v.channelId:'';
+    const cs=channel?_signal(liked.channels,disliked.channels,channel):0;
+    if(cs>0)positives.push('좋아요가 더 많았던 채널');else if(cs<0)negatives.push('별로가 더 많았던 채널');
+    let themePos=false,themeNeg=false,routePos=false,routeNeg=false;
+    for(const theme of themesOf(v)){const x=_signal(liked.themes,disliked.themes,theme);if(x>0)themePos=true;else if(x<0)themeNeg=true;}
+    for(const route of routesOf(v)){if(!TASTE_ROUTES.has(route))continue;const x=_signal(liked.routes,disliked.routes,route);if(x>0)routePos=true;else if(x<0)routeNeg=true;}
+    if(themePos)positives.push('좋아요가 더 많았던 이야기 유형');if(themeNeg)negatives.push('별로가 더 많았던 이야기 유형');
+    if(routePos)positives.push('좋아요가 더 많았던 탐색 경로');if(routeNeg)negatives.push('별로가 더 많았던 탐색 경로');
+    let bucket='explore';
+    if(cs>0||themePos)bucket='close';
+    else if(routePos)bucket='adjacent';
+    else if((cs<0||themeNeg||routeNeg)&&!positives.length)bucket='low';
+    return {bucket,positives,negatives,matched:bucket==='close'||bucket==='adjacent'};
   }
   function tasteMatch(v={},profile={}) {
-    const channel=Boolean(v.channelId&&profile.channelCounts&&profile.channelCounts[v.channelId]>0);
-    const routes=routesOf(v).filter(route=>TASTE_ROUTES.has(route)&&profile.routeCounts&&profile.routeCounts[route]>0);
-    return {matched:channel||routes.length>0,channel,routes};
+    const p=preferenceClass(v,profile);return {matched:p.matched,channel:p.positives.includes('좋아요가 더 많았던 채널'),routes:routesOf(v).filter(route=>TASTE_ROUTES.has(route)&&_signal((profile.liked||{}).routes||profile.routeCounts||{},(profile.disliked||{}).routes||{},route)>0),bucket:p.bucket};
   }
   function candidateTier(v={},r={}) {
     const kind=screenKind(v,r);
@@ -236,12 +268,24 @@
     return 'review';
   }
   function candidatePriorityGroup(v={},r={},profile={},tasteAssist=true) {
-    const tier=candidateTier(v,r),match=tasteAssist?tasteMatch(v,profile):{matched:false};
-    if(tier==='low')return 4;
-    if(tier==='priority'&&match.matched)return 0;
-    if(tier==='priority')return 1;
-    if(tier==='review'&&match.matched)return 2;
-    return 3;
+    const tier=candidateTier(v,r),pref=tasteAssist?preferenceClass(v,profile):{bucket:'explore'};
+    if(tier==='low')return 6;
+    const tierOffset=tier==='review'?1:0;
+    const base={close:0,adjacent:2,explore:4,low:5}[pref.bucket]??4;
+    return Math.min(5,base+tierOffset);
+  }
+  function personalizedBlend(items=[],profile={},tasteAssist=true) {
+    const rows=Array.isArray(items)?items.slice():[];
+    if(!tasteAssist||Number(profile.usableLikes||0)+Number(profile.usableDislikes||0)<5)return rows;
+    const buckets={close:[],adjacent:[],explore:[],low:[]};
+    for(const v of rows)buckets[preferenceClass(v,profile).bucket].push(v);
+    // 50% close / 30% adjacent / 20% exploration is a display target, not a hard quota.
+    // Missing buckets are backfilled; negative-evidence items stay last but are never hidden.
+    const pattern=['close','close','close','close','close','adjacent','adjacent','adjacent','explore','explore'];
+    const out=[];let progress=true;
+    while(progress){progress=false;for(const key of pattern){if(buckets[key].length){out.push(buckets[key].shift());progress=true;}}}
+    for(const key of ['close','adjacent','explore','low'])out.push(...buckets[key]);
+    return out;
   }
 
   function recordBatchFeedback(state,generatedAt,outcome,retryRound=1,at=new Date().toISOString()) {
@@ -262,5 +306,5 @@
     return roundRobin([...groups.values()].map(g=>balanceLanguage?balanceVideos(g,languageOrder):g));
   }
 
-  return {formatOf, shortsInfo, routesOf, ROUTE_LABELS, mixRoutes, recordBatchFeedback, buildTasteProfile, tasteMatch, candidateTier, candidatePriorityGroup, screenGateInfo, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, broadFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
+  return {formatOf, shortsInfo, routesOf, themesOf, ROUTE_LABELS, mixRoutes, recordBatchFeedback, buildTasteProfile, preferenceClass, personalizedBlend, tasteMatch, candidateTier, candidatePriorityGroup, screenGateInfo, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, broadFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
 });

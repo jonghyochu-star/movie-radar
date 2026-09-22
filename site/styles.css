@@ -41,3 +41,9 @@
 
 /* 1.6.2: evidence tiers + browser-local taste assist. No hidden score. */
 .priority-strip{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:0 0 10px}.priority-strip span{font-size:11px;font-weight:700;border-radius:999px;padding:5px 8px;border:1px solid var(--line);background:#f5f7fb;color:#536176}.priority-strip.priority>span:first-child{background:#eef8f2;border-color:#b9ddc8;color:#296247}.priority-strip.review>span:first-child{background:#fff8e9;border-color:#ecd8a3;color:#7a6024}.priority-strip.low>span:first-child{background:#f3f4f6;border-color:#d5dae2;color:#6a7280}.priority-strip .taste{background:#f1ebff;border-color:#cfc0f4;color:#6649bd}.taste-assist{border-top:1px dashed var(--line);padding-top:10px}
+
+/* 1.8 preference evidence: labels only, never a hidden score. */
+.priority-strip .taste.pref-close{font-weight:700}
+.priority-strip .taste.pref-adjacent{font-weight:600}
+.priority-strip .taste.pref-explore{opacity:.86}
+.priority-strip .taste.pref-low{opacity:.68}

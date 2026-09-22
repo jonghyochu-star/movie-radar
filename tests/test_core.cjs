@@ -109,9 +109,9 @@ test('taste match can use channel or discovery route without filtering',()=>{
 test('priority grouping nudges order but keeps review candidates',()=>{
  const profile={channelCounts:{'chan-a':1},routeCounts:{familiar:1}};
  assert.equal(C.candidatePriorityGroup({...fvideo,channelId:'chan-a',screenKind:'film'}, {}, profile, true),0);
- assert.equal(C.candidatePriorityGroup({...fvideo,channelId:'x',screenKind:'film'}, {}, profile, true),1);
- assert.equal(C.candidatePriorityGroup({...fvideo,channelId:'x',screenKind:'unknown',discoveryRoutes:['familiar']}, {}, profile, true),2);
- assert.equal(C.candidatePriorityGroup({...fvideo,channelId:'x',screenKind:'unknown',discoveryRoutes:['open']}, {}, profile, true),3);
+ assert.equal(C.candidatePriorityGroup({...fvideo,channelId:'x',screenKind:'film'}, {}, profile, true),4);
+ assert.equal(C.candidatePriorityGroup({...fvideo,channelId:'x',screenKind:'unknown',discoveryRoutes:['familiar']}, {}, profile, true),3);
+ assert.equal(C.candidatePriorityGroup({...fvideo,channelId:'x',screenKind:'unknown',discoveryRoutes:['open']}, {}, profile, true),5);
 });
 test('taste assist preference survives filter normalization and does not change filter eligibility',()=>{
  const a=C.normalizeFilters({tasteAssist:false}),b=C.normalizeFilters({tasteAssist:true});
@@ -122,4 +122,25 @@ test('screen gate explains movie and tv retrieval without claiming verification'
  assert.equal(C.screenGateInfo({...fvideo,screenGate:['movie']},{}).label,'영화 주제 검색');
  assert.equal(C.screenGateInfo({...fvideo,screenGate:['tv']},{}).label,'TV·드라마 주제 검색');
  assert.equal(C.screenGateInfo({...fvideo,screenKind:'unknown',screenGate:[]},{}).ok,false);
+});
+
+
+test('1.8 preference profile uses likes and dislikes but excludes structural exclusions',()=>{
+ const a={...fvideo,id:'LikeVideo01',channelId:'chan-a',discoveryRoutes:['familiar'],discoveryLabels:['관계 회복']};
+ const b={...fvideo,id:'BadVideo0001',channelId:'chan-b',discoveryRoutes:['open'],discoveryLabels:['새 작품']};
+ const c={...fvideo,id:'SkipVideo001',channelId:'chan-c',discoveryRoutes:['expand'],discoveryLabels:['존엄']};
+ const records={LikeVideo01:{rating:'like'},BadVideo0001:{rating:'dislike'},SkipVideo001:{rating:'like',format:'not_short'}};
+ const p=C.buildTasteProfile([a,b,c],records);assert.equal(p.likedCount,1);assert.equal(p.dislikedCount,1);assert.equal(p.excludedFromTaste,1);assert.equal(p.liked.themes['관계 회복'],1);assert.equal(p.disliked.themes['새 작품'],1);
+});
+test('1.8 preference classes are explainable and dislikes do not delete candidates',()=>{
+ const profile={liked:{channels:{a:2},routes:{familiar:2},themes:{'관계 회복':2}},disliked:{channels:{b:3},routes:{open:3},themes:{'새 작품':3}},usableLikes:2,usableDislikes:3};
+ assert.equal(C.preferenceClass({...fvideo,channelId:'a',discoveryLabels:['관계 회복']},profile).bucket,'close');
+ assert.equal(C.preferenceClass({...fvideo,channelId:'x',discoveryRoutes:['familiar']},profile).bucket,'adjacent');
+ assert.equal(C.preferenceClass({...fvideo,channelId:'x',discoveryRoutes:['expand']},profile).bucket,'explore');
+ assert.equal(C.preferenceClass({...fvideo,channelId:'b',discoveryLabels:['새 작품'],discoveryRoutes:['open']},profile).bucket,'low');
+});
+test('1.8 personalized blend keeps every candidate once',()=>{
+ const profile={liked:{channels:{a:1},routes:{familiar:1},themes:{}},disliked:{channels:{d:1},routes:{open:1},themes:{}},usableLikes:3,usableDislikes:3};
+ const items=[{id:'a1',channelId:'a'},{id:'a2',channelId:'a'},{id:'b1',discoveryRoutes:['familiar']},{id:'c1',discoveryRoutes:['expand']},{id:'d1',channelId:'d',discoveryRoutes:['open']}];
+ const out=C.personalizedBlend(items,profile,true);assert.equal(out.length,items.length);assert.equal(new Set(out.map(x=>x.id)).size,items.length);assert.equal(out.at(-1).id,'d1');
 });

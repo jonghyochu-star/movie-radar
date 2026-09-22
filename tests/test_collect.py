@@ -127,7 +127,7 @@ class TestCollect(unittest.TestCase):
                         if v['id']==HIDDEN:v['snippet']['defaultAudioLanguage']='hi'
                 return data
         out=m.collect(Mixed(),self.config())
-        self.assertEqual(out['collectorVersion'],'1.7')
+        self.assertEqual(out['collectorVersion'],'1.8')
         missing=next(v for v in out['videos'] if v['id']==GOOD)
         audio=next(v for v in out['videos'] if v['id']==HIDDEN)
         self.assertEqual((missing['language'],missing['declaredLanguage'],missing['languageSource']),('unknown','en','unknown'))
@@ -178,3 +178,10 @@ class TestCollect(unittest.TestCase):
         self.assertEqual(kept,ids[-m.RECENT_HISTORY_LIMIT:])
 
 if __name__=='__main__':unittest.main()
+
+
+class V18MetadataTests(unittest.TestCase):
+    def test_discovery_labels_field_supported_in_output_contract(self):
+        text=(ROOT/'scripts/collect.py').read_text(encoding='utf-8')
+        self.assertIn("'discoveryLabels':discovery_labels.get(vid,[])",text)
+        self.assertIn("'collectorVersion':'1.8'",text)
