@@ -101,4 +101,10 @@ class ScreenRulesTest(unittest.TestCase):
     def test_declared_english_is_not_used_to_invent_english_audio(self):
         x=infer_language({'title':'...','defaultLanguage':'en'})
         self.assertEqual(x['audio'],'unknown')
+
+    def test_interview_and_camera_gear_are_non_screen(self):
+        for title in ['Director interview with the cast #shorts','Camera rig review for filmmakers #shorts']:
+            v={'snippet':{'title':title,'description':'','tags':[],'categoryId':'22'},'topicDetails':{}}
+            self.assertEqual(screen_evidence(v)['kind'],'non_screen')
+
 if __name__=='__main__':unittest.main()

@@ -20,9 +20,9 @@ class UiSourceTests(unittest.TestCase):
             self.assertNotEqual(pos,-1,control)
             snippet=html[max(0,pos-160):pos+500]
             self.assertIn('title=',snippet,control)
-    def test_version_is_162(self):
+    def test_version_is_17(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-        self.assertIn('version">1.6.2<',html)
+        self.assertIn('version">1.7<',html)
 
 
     def test_broad_candidate_button_exists(self):
@@ -68,6 +68,15 @@ class UiSourceTests(unittest.TestCase):
         self.assertIn('candidatePriorityGroup',app)
         self.assertIn('priorityPanel',app)
         self.assertIn('.priority-strip',css)
+
+
+    def test_v17_movie_tv_gate_defaults(self):
+        html=(ROOT/'site/index.html').read_text(encoding='utf-8')
+        core=(ROOT/'site/core.js').read_text(encoding='utf-8')
+        self.assertIn('value="screen_gate" selected',html)
+        self.assertIn('value="0" selected>제한 없음 · 참고만',html)
+        self.assertIn("maxSubscribers:0",core)
+        self.assertIn("screenGateInfo",core)
 
 if __name__=='__main__':
     unittest.main()

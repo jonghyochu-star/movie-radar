@@ -25,10 +25,10 @@ test('rated and staged items do not clog pending review',()=>{assert.equal(C.nee
 
 const fvideo={...v,durationSeconds:90,language:'en',languageSource:'title',languageBasis:'제목 문장 단서 · 추정, 음성 미확인',screenKind:'film',views:100000,subscribers:5000};
 const defaults=()=>C.defaultFilters();
-test('default subscribers are 10000',()=>assert.equal(defaults().maxSubscribers,10000));
+test('default subscribers are unrestricted in 1.7',()=>assert.equal(defaults().maxSubscribers,0));
 test('5000 subscriber boundary inclusive',()=>{const f={...defaults(),maxSubscribers:5000};assert(C.matchesFilters(fvideo,{},f));assert(!C.matchesFilters({...fvideo,subscribers:5001},{},f));});
-test('10000 subscriber boundary inclusive',()=>{assert(C.matchesFilters({...fvideo,subscribers:10000},{},defaults()));assert(!C.matchesFilters({...fvideo,subscribers:10001},{},defaults()));});
-test('unknown subscriber not zero',()=>{for(const sub of [null,undefined,NaN,'4000'])assert(!C.matchesFilters({...fvideo,subscribers:sub},{},defaults()));});
+test('10000 subscriber boundary inclusive',()=>{const f={...defaults(),maxSubscribers:10000};assert(C.matchesFilters({...fvideo,subscribers:10000},{},f));assert(!C.matchesFilters({...fvideo,subscribers:10001},{},f));});
+test('unknown subscriber only rejected when cap is active',()=>{const f={...defaults(),maxSubscribers:10000};for(const sub of [null,undefined,NaN,'4000'])assert(!C.matchesFilters({...fvideo,subscribers:sub},{},f));});
 test('unknown subscriber allowed only without cap',()=>assert(C.matchesFilters({...fvideo,subscribers:null},{},{...defaults(),maxSubscribers:0})));
 test('zero subscribers valid but no ratio',()=>{assert(C.matchesFilters({...fvideo,subscribers:0},{},defaults()));assert.equal(C.ratio({...fvideo,subscribers:0}),null);});
 test('duration range inclusive and editable',()=>{const f={...defaults(),minSeconds:30,maxSeconds:90};for(const d of [30,90])assert(C.matchesFilters({...fvideo,durationSeconds:d},{},f));for(const d of [29,91,null])assert(!C.matchesFilters({...fvideo,durationSeconds:d},{},f));});
@@ -38,7 +38,7 @@ test('Hindi Arabic not shown by default including scripts',()=>{for(const lang o
 test('explicitly enabling languages works',()=>{const f={...defaults(),languages:['ar','hi']};assert(C.matchesFilters({...fvideo,language:'ar'},{},f));assert(C.matchesFilters({...fvideo,language:'hi'},{},f));});
 test('unknown language can still be hidden explicitly',()=>{assert(C.matchesFilters({...fvideo,language:'unknown'},{},defaults()));assert(!C.matchesFilters({...fvideo,language:'unknown'},{},{...defaults(),includeUnknownLanguage:false}));});
 test('selecting no languages gives zero not all',()=>assert(!C.matchesFilters(fvideo,{},{...defaults(),languages:[]})));
-test('recommended defaults keep metadata-unknown but hide strong non-screen evidence',()=>{assert(C.matchesFilters({...fvideo,screenKind:'unknown'},{},defaults()));assert(!C.matchesFilters({...fvideo,screenKind:'non_screen'},{},defaults()));});
+test('recommended defaults require movie-tv collection gate',()=>{assert(C.matchesFilters({...fvideo,screenKind:'unknown',screenGate:['movie']},{},defaults()));assert(!C.matchesFilters({...fvideo,screenKind:'unknown',screenGate:[]},{},defaults()));assert(!C.matchesFilters({...fvideo,screenKind:'non_screen',screenGate:['movie']},{},defaults()));});
 test('series included by default separate movie only',()=>{assert(C.matchesFilters({...fvideo,screenKind:'series'},{},defaults()));assert(!C.matchesFilters({...fvideo,screenKind:'series'},{},{...defaults(),content:'film'}));});
 test('recommended defaults include unknown language',()=>assert(C.matchesFilters({...fvideo,language:'unknown'},{},defaults())));
 test('broad filters remove display gates',()=>{const f=C.broadFilters();assert.equal(f.maxSubscribers,0);assert.equal(f.minViews,0);assert.equal(f.content,'all');assert.equal(f.minSeconds,0);assert.equal(f.maxSeconds,180);assert.equal(f.includeUnknownLanguage,true);});
@@ -49,8 +49,8 @@ test('manual nonfilm reset restores eligibility without taste mutation',()=>{let
 test('media confirmation does not confirm original country',()=>{const s=C.apply(C.blank(),v,'media_yes');assert.equal(s.records[v.id].origin,'unknown');assert(!C.ready(v,s.records[v.id]));});
 test('v11 migrations preserve candidates notes',()=>{const r={schema:1,records:{[v.id]:{rating:'like',origin:'non_korean',stage:'candidate',memo:'keep'}}};const x=C.normalize(r).records[v.id];assert.equal(x.media,'unknown');assert.equal(x.stage,'candidate');assert.equal(x.memo,'keep');assert(C.ready(v,x));});
 test('backup includes media no metadata',()=>{const data=C.exportData(C.apply(C.blank(),v,'media_no'));assert.equal(data.records[v.id].media,'not_screen');assert.equal(data.records[v.id].cache,undefined);});
-test('filter preferences sanitize',()=>{const f=C.normalizeFilters({maxSubscribers:NaN,minSeconds:180,maxSeconds:10,languages:['xx','en','en','__proto__'],balance:'yes'});assert.equal(f.maxSubscribers,10000);assert.equal(f.minSeconds,0);assert.equal(f.maxSeconds,180);assert.deepEqual(f.languages,['en']);assert.equal(f.balance,true);});
-test('funnel shows which restriction causes zero',()=>{const items=[fvideo,{...fvideo,id:'AbCdEfGhI02',subscribers:20000},{...fvideo,id:'AbCdEfGhI03',language:'hi'},{...fvideo,id:'AbCdEfGhI04',screenKind:'unknown'}];const n=C.filterCounts(items,{},defaults());assert.deepEqual(n,{total:4,content:4,subscribers:3,language:2,duration:2,views:2,route:2,format:2});});
+test('filter preferences sanitize',()=>{const f=C.normalizeFilters({maxSubscribers:NaN,minSeconds:180,maxSeconds:10,languages:['xx','en','en','__proto__'],balance:'yes'});assert.equal(f.maxSubscribers,0);assert.equal(f.minSeconds,0);assert.equal(f.maxSeconds,180);assert.deepEqual(f.languages,['en']);assert.equal(f.balance,true);});
+test('funnel shows which restriction causes zero',()=>{const items=[fvideo,{...fvideo,id:'AbCdEfGhI02',subscribers:20000},{...fvideo,id:'AbCdEfGhI03',language:'hi'},{...fvideo,id:'AbCdEfGhI04',screenKind:'unknown'}];const n=C.filterCounts(items,{},defaults());assert.deepEqual(n,{total:4,content:3,subscribers:3,language:2,duration:2,views:2,route:2,format:2});});
 test('language balancing interleaves, does not lose or duplicate',()=>{const items=[{id:'1',language:'en',languageSource:'title',channelId:'a'},{id:'2',language:'en',languageSource:'title',channelId:'a'},{id:'3',language:'en',languageSource:'title',channelId:'b'},{id:'4',language:'ja',languageSource:'title',channelId:'c'},{id:'5',language:'ja',languageSource:'title',channelId:'c'}];const result=C.balanceVideos(items,['en','ja']);assert.deepEqual(result.map(v=>v.id),['1','4','3','5','2']);assert.equal(new Set(result.map(v=>v.id)).size,items.length);});
 test('language balancing handles empty, unknown, missing channel',()=>{assert.deepEqual(C.balanceVideos([]),[]);const items=[{id:'1'},{id:'2',language:'ar'}];assert.equal(C.balanceVideos(items).length,2);});
 test('display filters do not mutate records',()=>{const s=C.apply(C.blank(),v,'like');const before=JSON.stringify(s);C.matchesFilters(fvideo,s.records[v.id],defaults());C.filterCounts([fvideo],s.records,defaults());assert.equal(JSON.stringify(s),before);});
@@ -89,8 +89,8 @@ test('batch feedback survives export normalize',()=>{let s=C.recordBatchFeedback
 
 
 test('candidate tiers are evidence labels not scores',()=>{
- assert.equal(C.candidateTier({...fvideo,screenKind:'film'},{}),'priority');
- assert.equal(C.candidateTier({...fvideo,screenKind:'series'},{}),'priority');
+ assert.equal(C.candidateTier({...fvideo,screenKind:'film',screenGate:['movie']},{}),'priority');
+ assert.equal(C.candidateTier({...fvideo,screenKind:'series',screenGate:['tv']},{}),'priority');
  assert.equal(C.candidateTier({...fvideo,screenKind:'unknown'},{}),'review');
  assert.equal(C.candidateTier({...fvideo,screenKind:'non_screen'},{}),'low');
  assert.equal(C.candidateTier({...fvideo,screenKind:'unknown'},{media:'screen'}),'priority');
@@ -116,4 +116,10 @@ test('priority grouping nudges order but keeps review candidates',()=>{
 test('taste assist preference survives filter normalization and does not change filter eligibility',()=>{
  const a=C.normalizeFilters({tasteAssist:false}),b=C.normalizeFilters({tasteAssist:true});
  assert.equal(a.tasteAssist,false);assert.equal(b.tasteAssist,true);assert.equal(C.matchesFilters(fvideo,{},a),C.matchesFilters(fvideo,{},b));
+});
+
+test('screen gate explains movie and tv retrieval without claiming verification',()=>{
+ assert.equal(C.screenGateInfo({...fvideo,screenGate:['movie']},{}).label,'영화 주제 검색');
+ assert.equal(C.screenGateInfo({...fvideo,screenGate:['tv']},{}).label,'TV·드라마 주제 검색');
+ assert.equal(C.screenGateInfo({...fvideo,screenKind:'unknown',screenGate:[]},{}).ok,false);
 });

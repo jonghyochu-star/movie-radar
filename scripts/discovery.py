@@ -13,6 +13,8 @@ LABELS = {'familiar':'참고 결에서 출발', 'expand':'다른 감동 이야�
           'source':'참고 채널에서 발견', 'direct':'직접 지정', 'legacy':'기존 검색'}
 
 SEARCH_LANGS=('en','ja','es','pt','fr','de','it','zh-Hans')
+SCREEN_TOPIC_IDS={'movie':'/m/02vxn','tv':'/m/0f2f9'}
+SCREEN_TOPIC_LABELS={'movie':'영화','tv':'드라마·TV'}
 PRESET_WEIGHTS={
     'english_only': {'en':100},
     'english_focus': {'en':70,'ja':5,'es':5,'pt':5,'fr':5,'de':4,'it':3,'zh-Hans':3},
@@ -115,14 +117,21 @@ def validate_discovery(raw):
     seed_limit=raw.get('seed_channel_limit',4)
     if type(seed_limit) is not int or not 1<=seed_limit<=4:
         raise ValueError('seed_channel_limit는 1~4여야 합니다.')
-    review_pool_limit=raw.get('review_pool_limit',48)
+    screen_topics=raw.get('screen_topics',['movie','tv'])
+    if not isinstance(screen_topics,list) or not screen_topics or len(screen_topics)>2 or not all(x in SCREEN_TOPIC_IDS for x in screen_topics):
+        raise ValueError('screen_topics는 movie/tv 중 하나 이상이어야 합니다.')
+    screen_topics=list(dict.fromkeys(screen_topics))
+    source_requires_screen_evidence=raw.get('source_requires_screen_evidence',True)
+    if not isinstance(source_requires_screen_evidence,bool):
+        raise ValueError('source_requires_screen_evidence는 true/false여야 합니다.')
+    review_pool_limit=raw.get('review_pool_limit',40)
     if type(review_pool_limit) is not int or not 12<=review_pool_limit<=80:
         raise ValueError('review_pool_limit는 12~80 정수여야 합니다.')
-    per_channel_limit=raw.get('per_channel_limit',4)
+    per_channel_limit=raw.get('per_channel_limit',3)
     if type(per_channel_limit) is not int or not 1<=per_channel_limit<=10:
         raise ValueError('per_channel_limit는 1~10 정수여야 합니다.')
-    seed_pool_percent=raw.get('seed_pool_percent',30)
-    reference_pool_percent=raw.get('reference_pool_percent',15)
+    seed_pool_percent=raw.get('seed_pool_percent',25)
+    reference_pool_percent=raw.get('reference_pool_percent',10)
     for name,value,high in [('seed_pool_percent',seed_pool_percent,50),('reference_pool_percent',reference_pool_percent,40)]:
         if type(value) is not int or not 0<=value<=high:
             raise ValueError(f'{name} 범위를 확인하세요.')
@@ -132,6 +141,7 @@ def validate_discovery(raw):
             'reference_video_ids':list(dict.fromkeys(refs)),
             'reference_pages_per_channel':pages,'reference_channel_limit':limit,
             'seed_pages_per_channel':seed_pages,'seed_channel_limit':seed_limit,
+            'screen_topics':screen_topics,'source_requires_screen_evidence':source_requires_screen_evidence,
             'review_pool_limit':review_pool_limit,'per_channel_limit':per_channel_limit,
             'seed_pool_percent':seed_pool_percent,'reference_pool_percent':reference_pool_percent}
 
@@ -156,6 +166,7 @@ def select_profiles(c, rotation=0, preset='english_focus', custom_weights='', re
         else: lane_order=full[:count]
         collection=parse_collection_plan(preset,custom_weights)
         langs=language_slots(collection,count,rotation+retry_round-1)
+        topics=plan.get('screen_topics',['movie','tv']) or ['movie','tv']
         selected=[]
         for i,lane in enumerate(lane_order):
             options=[p for p in plan['profiles'] if p['lane']==lane]
@@ -165,7 +176,9 @@ def select_profiles(c, rotation=0, preset='english_focus', custom_weights='', re
                 # This can only happen with a malformed future discovery file; keep route exploration.
                 preferred=options
             index=(rotation + (retry_round-1)*3 + i)//max(1,count)
-            selected.append(preferred[index%len(preferred)])
+            item=dict(preferred[index%len(preferred)])
+            item['screenTopic']=topics[(rotation+retry_round-1+i)%len(topics)]
+            selected.append(item)
         return selected
     pool=c['queries'];count=min(c['queries_per_run'],len(pool))
     anchor=next((e for e in pool if e['language']==c.get('anchor_language') and e['language']),None)
@@ -187,17 +200,16 @@ def shorts_hint(snippet):
 
 
 def diverse_snapshot(items, limit):
-    """Keep candidate routes AND small-channel bands when a public snapshot is full.
-    No extra filter/score: all items are kept when under the configured cap.
+    """Bound a large snapshot without rewarding small subscriber counts.
+    Views are the first ordering signal; discovery routes are interleaved only to
+    avoid one search lane monopolising the snapshot.
     """
-    ordered=sorted(items,key=lambda v:v['views'] if v.get('views') is not None else -1,reverse=True)
+    ordered=sorted(items,key=lambda v:(v.get('views') if isinstance(v.get('views'),(int,float)) else -1),reverse=True)
     if len(ordered)<=limit:return ordered
     groups=OrderedDict()
     for v in ordered:
-        n=v.get('subscribers')
-        band='unknown' if n is None else 'under5k' if n<=5000 else 'under10k' if n<=10000 else 'larger'
         route=(v.get('discoveryRoutes') or ['legacy'])[0]
-        groups.setdefault((route,band),[]).append(v)
+        groups.setdefault(route,[]).append(v)
     result=[];index=0
     while len(result)<limit:
         added=False
@@ -225,15 +237,13 @@ def source_category(video):
     return 'other'
 
 def _review_priority(video):
-    subs=video.get('subscribers')
-    if isinstance(subs,(int,float)) and not isinstance(subs,bool):
-        band=0 if subs<=5000 else 1 if subs<=10000 else 2
-    else:
-        band=3
+    gate=set(video.get('screenGate') or [])
+    evidence=video.get('screenKind')
+    screen_rank=0 if gate & {'movie','tv'} else 1 if evidence in {'film','series'} else 2
     views=video.get('views') if isinstance(video.get('views'),(int,float)) else -1
-    return (band,-views,str(video.get('id','')))
+    return (screen_rank,-views,str(video.get('id','')))
 
-def select_review_pool(items, limit=48, per_channel_limit=4, seed_percent=30, reference_percent=15):
+def select_review_pool(items, limit=40, per_channel_limit=3, seed_percent=25, reference_percent=10):
     """Return a bounded, channel-diverse review set.
 
     The source-channel caps are hard maxima. Search-discovered candidates are

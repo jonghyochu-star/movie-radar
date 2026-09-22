@@ -24,7 +24,7 @@ _SCRIPT_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 from screen_rules import infer_language, screen_evidence
-from discovery import validate_discovery, select_profiles, shorts_hint, diverse_snapshot, select_review_pool, source_category, LABELS, parse_collection_plan
+from discovery import validate_discovery, select_profiles, shorts_hint, diverse_snapshot, select_review_pool, source_category, LABELS, parse_collection_plan, SCREEN_TOPIC_IDS, SCREEN_TOPIC_LABELS
 
 CHANNEL = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
 
@@ -251,7 +251,7 @@ def load_prior_history(repository, limit=RECENT_HISTORY_LIMIT, fp_limit=RECENT_F
     url=prior_pages_url(repository)
     if not url:return set(), [], None
     try:
-        req=Request(url+'?t='+str(int(time.time())),headers={'Accept':'application/json','User-Agent':'MovieRadar/1.5'})
+        req=Request(url+'?t='+str(int(time.time())),headers={'Accept':'application/json','User-Agent':'MovieRadar/1.7'})
         with urlopen(req,timeout=12) as response:data=json.load(response)
         ids=[];fps=[]
         if isinstance(data,dict):
@@ -288,7 +288,7 @@ def parse_seed_video_ids(value, limit=8):
 def collect(api, c, rotation=0, now=None, collection_preset='english_focus', custom_weights='', retry_round=1, excluded_ids=None, excluded_fingerprints=None, trigger='manual', seed_video_ids=None):
     now = now or datetime.now(timezone.utc)
     stamp = timestamp(now)
-    found, routes, source_kinds = {}, {}, {}
+    found, routes, source_kinds, topic_gates = {}, {}, {}, {}
     warnings = []
     excluded_order=ordered_video_ids(excluded_ids or [],RECENT_HISTORY_LIMIT)
     excluded_ids=set(excluded_order)
@@ -301,12 +301,13 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
     reference_ids=plan['reference_video_ids'] if plan else []
     seed_ids=parse_seed_video_ids(seed_video_ids)
     blocked_seed_ids=set(reference_ids)|set(seed_ids)
-    def add(vid, source, route='legacy', source_kind='search'):
+    def add(vid, source, route='legacy', source_kind='search', screen_topic=None):
         if isinstance(vid,str) and ID.fullmatch(vid) and vid not in blocked_seed_ids and vid not in excluded_ids:
-            found.setdefault(vid,[]);routes.setdefault(vid,[]);source_kinds.setdefault(vid,[])
+            found.setdefault(vid,[]);routes.setdefault(vid,[]);source_kinds.setdefault(vid,[]);topic_gates.setdefault(vid,[])
             if source not in found[vid]:found[vid].append(source)
             if route not in routes[vid]:routes[vid].append(route)
             if source_kind not in source_kinds[vid]:source_kinds[vid].append(source_kind)
+            if screen_topic in SCREEN_TOPIC_IDS and screen_topic not in topic_gates[vid]:topic_gates[vid].append(screen_topic)
     selected=select_profiles(c,rotation,collection_preset,custom_weights,retry_round)
     query_names=[entry['q'] for entry in selected]
     languages=list(dict.fromkeys(entry['language'] for entry in selected if entry['language']))
@@ -317,21 +318,26 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
     # Six discovery topics x recent/archive = at most 12 search.list calls per run.
     # Three normal retry rounds therefore plan at most 36 search.list calls, before transport retries.
     for profile in selected:
+        screen_topic=profile.get('screenTopic')
         for recent in [True,False]:
             params=dict(part='snippet',type='video',q=profile['q'],
                         order=c['recent_order'] if recent else c['archive_order'],
                         videoDuration='short',maxResults=c['results_per_search'],safeSearch='moderate')
-            # In the new plan the film topic is NOT a gate: it loses TV/indie scenes.
-            if not plan and recent and c.get('recent_topic_id'):params['topicId']=c['recent_topic_id']
+            # 1.7: discovery starts inside YouTube's curated Movies/TV topic space.
+            # This is a retrieval gate, not proof that a clip is a verified film/TV scene.
+            if plan and screen_topic in SCREEN_TOPIC_IDS:params['topicId']=SCREEN_TOPIC_IDS[screen_topic]
+            elif not plan and recent and c.get('recent_topic_id'):params['topicId']=c['recent_topic_id']
             if profile['language']:params['relevanceLanguage']=profile['language']
             if c['region_code']:params['regionCode']=c['region_code']
             days=c['recent_days'] if recent else c['archive_days']
             if days:params['publishedAfter']=timestamp(now-timedelta(days=days))
             scope=f'최근 {days}일' if days else '전체 기간'
             result=api.get('search',**params)
+            topic_label=SCREEN_TOPIC_LABELS.get(screen_topic,'')
             for item in result.get('items',[]):
                 add(item.get('id',{}).get('videoId'),
-                    f"{LABELS[profile['lane']]} / {profile['label']} · 검색어: {profile['q']} · {scope}",profile['lane'])
+                    f"{LABELS[profile['lane']]} / {profile['label']} · {topic_label or '일반'} 주제 검색 · {scope}",
+                    profile['lane'],'search',screen_topic)
     # Resolve fixed references and explicit liked-video seeds at runtime.
     # Likes are browser-local; only IDs the user deliberately passes to Actions are used here.
     reference_channels=[];seed_channels=[];resolved_reference_ids=[];resolved_seed_ids=[]
@@ -389,13 +395,14 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
                                  'scannedUploads':scanned,'referenceSource':cid in reference_channels,
                                  'likedSeedSource':cid in seed_channels})
     for vid in c['video_ids']:add(vid,'설정 파일에서 지정한 영상','direct','direct')
-    base={'schema':1,'mode':'live','generatedAt':stamp,'collectorVersion':'1.6.1',
+    base={'schema':1,'mode':'live','generatedAt':stamp,'collectorVersion':'1.7',
           'reviewPolicy':'manual-original-country-v1','warnings':warnings,
           'searchQueries':query_names,'searchLanguages':languages,
           'collectionPlan':{'preset':collection_plan['preset'],'weights':collection_plan['weights'],
                             'retryRound':int(retry_round),'trigger':trigger,
                             'excludedPreviousIds':len(excluded_ids),'activeLanguages':languages},
-          'discoveryPlan':[{'lane':p['lane'],'label':p['label'],'language':p['language'],'query':p['q']} for p in selected],
+          'discoveryPlan':[{'lane':p['lane'],'label':p['label'],'language':p['language'],'query':p['q'],
+                            'screenTopic':p.get('screenTopic'),'screenTopicLabel':SCREEN_TOPIC_LABELS.get(p.get('screenTopic'),'')} for p in selected],
           'referenceSummary':{'requested':len(reference_ids),'resolved':len(resolved_reference_ids),
                               'seedRequested':len(seed_ids),'seedResolved':len(resolved_seed_ids),
                               'seedChannels':len(seed_channels),'channels':source_stats},
@@ -422,7 +429,7 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
         for ch in api.get('channels',part='statistics',id=','.join(batch)).get('items',[]):
             stats=ch.get('statistics',{})
             subscribers[ch['id']]=None if stats.get('hiddenSubscriberCount') else number(stats.get('subscriberCount'))
-    result=[]; accepted_fingerprints=[]; duplicate_suppressed=0
+    result=[]; accepted_fingerprints=[]; duplicate_suppressed=0;rejected_non_screen=0;rejected_source_without_screen=0;rejected_without_gate=0
     for v,seconds in eligible:
         s=v.get('snippet',{});st=v.get('statistics',{});cid=s.get('channelId','')
         thumbs=s.get('thumbnails',{});thumb=next((thumbs[k].get('url','') for k in ['high','medium','default'] if k in thumbs),'')
@@ -430,11 +437,23 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
         vid=v.get('id','')
         if not ID.fullmatch(vid):continue
         lang=infer_language(s);evidence=screen_evidence(v)
-        # Collection language controls actual candidates, not only the browser display.
-        # Apply the languages selected in this run to search AND reference-channel results.
+        topic_keys=list(topic_gates.get(vid,[]));kinds=set(source_kinds.get(vid,[]))
+        # Collection language controls actual candidates. English-only stays strict;
+        # other presets keep unknown-language topic-gated clips so metadata gaps do not erase good scenes.
         if plan:
-            if lang['code']=='unknown':continue
-            if active_languages and lang['code'] not in active_languages:continue
+            if collection_plan['preset']=='english_only' and lang['code']!='en':continue
+            if lang['code']!='unknown' and active_languages and lang['code'] not in active_languages:continue
+        # Strong non-screen evidence is rejected even when YouTube associated the result with Movies/TV.
+        if evidence['kind']=='non_screen':
+            rejected_non_screen+=1;continue
+        source_only=not topic_keys and bool(kinds & {'seed','reference','configured'})
+        if plan and plan.get('source_requires_screen_evidence',True) and source_only and evidence['kind'] not in {'film','series'}:
+            rejected_source_without_screen+=1;continue
+        screen_gate=list(topic_keys)
+        if evidence['kind'] in {'film','series'} and 'metadata' not in screen_gate:screen_gate.append('metadata')
+        if 'direct' in kinds and 'direct' not in screen_gate:screen_gate.append('direct')
+        if plan and not screen_gate:
+            rejected_without_gate+=1;continue
         fp=title_token_hashes(s.get('title',''))
         if near_duplicate(fp,[*excluded_fingerprints,*accepted_fingerprints]):
             duplicate_suppressed+=1;continue
@@ -443,17 +462,18 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
                        'declaredLanguage':lang['declared'],'languageSource':lang['source'],
                        'titleLanguage':lang['titleCode'],'titleLanguageBasis':lang['titleBasis'],
                        'screenKind':evidence['kind'],'screenReason':evidence['reason'],
-                       'metadataVersion':'1.6','id':vid,'title':s.get('title',''),'channelTitle':s.get('channelTitle',''),'channelId':cid,
+                       'metadataVersion':'1.7','id':vid,'title':s.get('title',''),'channelTitle':s.get('channelTitle',''),'channelId':cid,
                        'views':number(st.get('viewCount')),'subscribers':subscribers.get(cid),
                        'publishedAt':s.get('publishedAt'),'fetchedAt':stamp,'durationSeconds':seconds,
                        'thumbnail':thumb,'originalStatus':'unverified','source':' / '.join(found.get(vid,[])[:2]),
-                       'discoveryRoutes':routes.get(vid,[]),'sourceKinds':source_kinds.get(vid,[]),'shortsHint':shorts_hint(s)})
+                       'discoveryRoutes':routes.get(vid,[]),'sourceKinds':source_kinds.get(vid,[]),'screenGate':screen_gate,
+                       'shortsHint':shorts_hint(s)})
     eligible_count=len(result)
     result=diverse_snapshot(result,c['max_videos'])
     raw_after_cap=len(result)
     if plan:
-        review_limit=min(c['max_videos'],plan.get('review_pool_limit',48))
-        result=select_review_pool(result,review_limit,plan.get('per_channel_limit',4),plan.get('seed_pool_percent',30),plan.get('reference_pool_percent',15))
+        review_limit=min(c['max_videos'],plan.get('review_pool_limit',40))
+        result=select_review_pool(result,review_limit,plan.get('per_channel_limit',3),plan.get('seed_pool_percent',25),plan.get('reference_pool_percent',10))
     else:
         review_limit=c['max_videos']
     if not result:warnings.append('길이·공개 조건에 맞는 후보가 없습니다.')
@@ -464,11 +484,14 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
         cid=v.get('channelId') or v.get('id');channel_counts[cid]=channel_counts.get(cid,0)+1
     base['collectionSummary']={'uniqueFound':len(found),'eligibleBeforeCap':eligible_count,'rawAfterSafetyCap':raw_after_cap,'kept':len(result),
         'reserveCount':max(0,raw_after_cap-len(result)),'duplicateCandidatesSuppressed':duplicate_suppressed,'snapshotLimit':c['max_videos'],
-        'reviewPoolLimit':review_limit,'perChannelLimit':plan.get('per_channel_limit',4) if plan else None,
-        'seedPoolPercent':plan.get('seed_pool_percent',30) if plan else None,'referencePoolPercent':plan.get('reference_pool_percent',15) if plan else None,
+        'reviewPoolLimit':review_limit,'perChannelLimit':plan.get('per_channel_limit',3) if plan else None,
+        'seedPoolPercent':plan.get('seed_pool_percent',25) if plan else None,'referencePoolPercent':plan.get('reference_pool_percent',10) if plan else None,
         'maxPerChannelObserved':max(channel_counts.values(),default=0),'sourceCategoryCounts':category_counts,
+        'screenGateCounts':{key:sum(key in (v.get('screenGate') or []) for v in result) for key in ['movie','tv','metadata','direct']},
+        'rejectedNonScreen':rejected_non_screen,'rejectedSourceWithoutScreenEvidence':rejected_source_without_screen,
+        'rejectedWithoutScreenGate':rejected_without_gate,
         'routeCounts':{lane:sum(lane in v['discoveryRoutes'] for v in result) for lane in LABELS},
-        'note':'원본 후보를 버린 것이 아니라 검토 부담을 줄이기 위해 출처·채널 쏠림을 제한한 공개 검토 풀입니다. 씨앗/참고 채널 비중은 상한이며 검색 후보가 부족하면 표시 수가 목표보다 적을 수 있습니다.'}
+        'note':'1.7은 Movies/TV 주제에서 먼저 검색하고, 참고·씨앗 채널 단독 후보는 영화·드라마 메타데이터 근거가 있을 때만 검토 풀에 넣습니다. 구독자 수는 선별 우선순위에 사용하지 않습니다.'}
     history=ordered_video_ids([*excluded_order,*[v['id'] for v in result]],RECENT_HISTORY_LIMIT)
     return {**base,'collectorHistoryIds':history,'collectorRecentFingerprints':accepted_fingerprints[-800:],'videos':result}
 
@@ -513,6 +536,7 @@ def main():
         print("참고·좋아요 출처 채널: " + str(len(data.get("referenceSummary",{}).get("channels",[]))) +
               " / 좋아요 씨앗 채널 " + str(data.get('referenceSummary',{}).get('seedChannels',0)))
         print("검색 언어: " + ", ".join(data.get("searchLanguages", [])))
+        print("영화/TV 게이트: " + json.dumps(data.get('collectionSummary',{}).get('screenGateCounts',{}),ensure_ascii=False))
         print("이번 실행 API 호출: " + json.dumps(data.get('apiUsage',{}).get('byEndpoint',{}),ensure_ascii=False))
         print("수집 언어 계획: " + json.dumps(data.get("collectionPlan",{}),ensure_ascii=False))
         print("중복 억제: " + str(data.get('collectionSummary',{}).get('duplicateCandidatesSuppressed',0)) + "개 / 캐시·이전 배포 ID 제외 " + str(data.get('collectionPlan',{}).get('excludedPreviousIds',0)) + "개")

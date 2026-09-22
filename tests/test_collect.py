@@ -81,7 +81,7 @@ class TestCollect(unittest.TestCase):
             self.assertEqual(searches[0]['relevanceLanguage'],'en')
             self.assertEqual(searches[0].get('topicId'),'/m/02vxn')
             self.assertNotIn('topicId',searches[1])
-            self.assertEqual(searches[1]['order'],'relevance')
+            self.assertEqual(searches[1]['order'],'viewCount')
         self.assertEqual(len(seen),8)
         self.assertNotIn('hi',seen);self.assertNotIn('ar',seen)
         self.assertNotIn('ko',seen)
@@ -127,7 +127,7 @@ class TestCollect(unittest.TestCase):
                         if v['id']==HIDDEN:v['snippet']['defaultAudioLanguage']='hi'
                 return data
         out=m.collect(Mixed(),self.config())
-        self.assertEqual(out['collectorVersion'],'1.6.1')
+        self.assertEqual(out['collectorVersion'],'1.7')
         missing=next(v for v in out['videos'] if v['id']==GOOD)
         audio=next(v for v in out['videos'] if v['id']==HIDDEN)
         self.assertEqual((missing['language'],missing['declaredLanguage'],missing['languageSource']),('unknown','en','unknown'))

@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location('collect13',ROOT/'scripts/collect.py')
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
-from discovery import select_profiles,validate_discovery,shorts_hint,diverse_snapshot,select_review_pool,source_category,parse_collection_plan,language_slots
+from discovery import select_profiles,validate_discovery,shorts_hint,diverse_snapshot,select_review_pool,source_category,parse_collection_plan,language_slots,SCREEN_TOPIC_IDS
 CID='UC'+'r'*22; LARGE='UC'+'s'*22
 VID='DemoVideo01';ALT='DemoVideo02';REF='bTL6azhffzA'
 
@@ -68,8 +68,10 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(self.config()['channel_ids'],[])
     def test_search_stays_twelve(self):
         api=Fake();m.collect(api,self.config());self.assertEqual(sum(e=='search' for e,_ in api.calls),12)
-    def test_search_not_movie_topic_gated(self):
-        api=Fake();m.collect(api,self.config());self.assertTrue(all('topicId' not in p for e,p in api.calls if e=='search'))
+    def test_search_is_movie_tv_topic_gated(self):
+        api=Fake();m.collect(api,self.config());topics=[p.get('topicId') for e,p in api.calls if e=='search']
+        self.assertTrue(topics);self.assertTrue(all(x in set(SCREEN_TOPIC_IDS.values()) for x in topics))
+        self.assertEqual(set(topics),set(SCREEN_TOPIC_IDS.values()))
     def test_reference_channel_followed_even_large(self):
         api=Fake();data=m.collect(api,self.config())
         self.assertIn(ALT,[v['id'] for v in data['videos']])
@@ -123,10 +125,12 @@ class DiscoveryTests(unittest.TestCase):
         api=Fake();data=m.collect(api,c)
         self.assertEqual(sum(e=='playlistItems' for e,p in api.calls),2)
         self.assertEqual(len(data['videos']),2)
-    def test_cap_preserves_small_and_new_lanes(self):
+    def test_cap_preserves_routes_without_small_channel_bias(self):
         rows=[{'id':str(i),'views':10000-i,'subscribers':100000,'discoveryRoutes':['work']} for i in range(50)]
         rows += [{'id':'small','views':1000,'subscribers':2000,'discoveryRoutes':['open']}, {'id':'small2','views':900,'subscribers':8000,'discoveryRoutes':['expand']}]
-        out=diverse_snapshot(rows,5);self.assertIn('small',[v['id'] for v in out]);self.assertEqual(len(out),5)
+        out=diverse_snapshot(rows,5);ids=[v['id'] for v in out]
+        self.assertEqual(len(out),5);self.assertIn('small',ids);self.assertIn('small2',ids)
+        self.assertEqual(out[0]['id'],'0')
     def test_under_cap_keeps_everything(self):
         rows=[{'id':str(i),'views':i,'subscribers':100} for i in range(3)]
         self.assertEqual(len(diverse_snapshot(rows,400)),3)
@@ -148,9 +152,9 @@ class DiscoveryTests(unittest.TestCase):
         for n in [1,2,3]:
             c['queries_per_run']=n;out=select_profiles(c,0);self.assertEqual(len(out),n);self.assertIn('open',[p['lane'] for p in out])
     def test_snapshot_metadata_has_new_version(self):
-        out=m.collect(Fake(),self.config());self.assertEqual(out['collectorVersion'],'1.6.1')
+        out=m.collect(Fake(),self.config());self.assertEqual(out['collectorVersion'],'1.7')
         self.assertEqual(out['collectionSummary']['kept'],len(out['videos']))
-        self.assertLessEqual(len(out['videos']),48)
+        self.assertLessEqual(len(out['videos']),40)
 
     def test_review_pool_limits_one_channel(self):
         rows=[]
@@ -230,5 +234,33 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(sum(e=='playlistItems' and p.get('playlistId')=='UU'+seed_channel[2:] for e,p in api.calls),1)
         seed_rows=[v for v in out['videos'] if v['id']==seed_alt]
         self.assertTrue(seed_rows);self.assertIn('seed',seed_rows[0].get('sourceKinds',[]))
+
+
+    def test_profiles_alternate_movie_and_tv_topics(self):
+        rows=select_profiles(self.config(),0,'english_focus','',1)
+        self.assertEqual({r['screenTopic'] for r in rows},{'movie','tv'})
+        self.assertEqual([r['screenTopic'] for r in rows[:4]],['movie','tv','movie','tv'])
+
+    def test_source_only_non_screen_upload_is_rejected(self):
+        class NonScreenSource(Fake):
+            def get(self,e,**p):
+                data=super().get(e,**p)
+                if e=='videos' and p.get('part')!='snippet':
+                    for x in data['items']:
+                        if x['id']==ALT:
+                            x['snippet']['title']='Camera lens review and unboxing #shorts'
+                            x['snippet']['description']='Gear review'
+                            x['snippet']['categoryId']='26'
+                return data
+        out=m.collect(NonScreenSource(),self.config())
+        self.assertNotIn(ALT,[v['id'] for v in out['videos']])
+        self.assertGreaterEqual(out['collectionSummary']['rejectedNonScreen'],1)
+
+    def test_subscriber_count_not_used_in_review_priority(self):
+        rows=[
+            {'id':'big','views':900000,'subscribers':900000,'channelId':'big','discoveryRoutes':['familiar'],'sourceKinds':['search'],'screenGate':['movie'],'screenKind':'film'},
+            {'id':'small','views':100000,'subscribers':1000,'channelId':'small','discoveryRoutes':['familiar'],'sourceKinds':['search'],'screenGate':['movie'],'screenKind':'film'}]
+        out=select_review_pool(rows,2,3,25,10)
+        self.assertEqual([v['id'] for v in out],['big','small'])
 
 if __name__=='__main__':unittest.main()

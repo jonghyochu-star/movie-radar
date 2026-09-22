@@ -3,7 +3,7 @@ const C=MovieCore, $=s=>document.querySelector(s);
 const prefix='movie-radar:v1:'+location.pathname.replace(/index\.html$/,'');
 const key=prefix+':records', consentKey=prefix+':consent';
 let storageBlocked=false;
-const filterKey=prefix+':filters-v1.6.1', collectionKey=prefix+':collection-v1.4';
+const filterKey=prefix+':filters-v1.7', collectionKey=prefix+':collection-v1.4';
 let filters=C.defaultFilters();
 const defaultCollectionPrefs=()=>({preset:'english_focus',customWeights:'en:70,ja:5,es:5,pt:5,fr:5,de:4,it:3,zh-Hans:3',retryRound:1});
 let collectionPrefs=defaultCollectionPrefs();
@@ -119,19 +119,20 @@ function updateFilterSummary(){
  $('#filter-summary').textContent=`이 탭의 미검토 ${n.total}개 → 영상 종류 ${n.content}개 → 구독자 ${n.subscribers}개 → 언어 ${n.language}개 → 길이 ${n.duration}개 → 조회수 ${n.views}개 → 수집 경로 ${n.route}개 → 쇼츠 조건 ${n.format}개. 현재 표시 후보 중 추천 우선 ${priority}개 · 확인 필요 ${review}개 · 좋아요 참고 ${taste}개. ${filters.tasteAssist?'좋아요는 순서에만 반영하며 후보를 숨기지 않습니다. ':''}${filters.mixDiscovery?'경로도 골고루 배치. ':''}${filters.balance?'언어·채널 균형 표시 중.':'선택한 정렬순 그대로 표시 중.'}`;
 }
 function priorityPanel(v,r){
- const tier=C.candidateTier(v,r),profile=C.buildTasteProfile(allVideos(),state.records),match=C.tasteMatch(v,profile);
- const labels={priority:'추천 우선',review:'확인 필요',low:'비영화 의심'};
- const notes={priority:'영화·드라마 장면 단서가 비교적 분명합니다.',review:'메타데이터만으로 영화·드라마 여부가 확실하지 않아 직접 확인이 필요합니다.',low:'제품·게임·기타 비영화 자료 단서가 강합니다.'};
+ const tier=C.candidateTier(v,r),profile=C.buildTasteProfile(allVideos(),state.records),match=C.tasteMatch(v,profile),gate=C.screenGateInfo(v,r);
+ const labels={priority:'영화·드라마 우선',review:'게이트 확인 필요',low:'비영화 의심'};
+ const notes={priority:`${gate.label}. YouTube 주제/메타데이터 근거이며 실제 장면을 AI가 본 결과는 아닙니다.`,review:'영화·드라마 수집 게이트가 확인되지 않아 직접 확인이 필요합니다.',low:'제품·게임·기타 비영화 자료 단서가 강합니다.'};
  const taste=filters.tasteAssist&&match.matched?`<span class="taste" title="좋아요한 영상과 같은 ${match.channel?'채널':''}${match.channel&&match.routes.length?'·':''}${match.routes.length?'탐색 경로':''}가 겹칩니다. 취향 점수가 아니라 표시 순서 참고 신호입니다.">♥ 좋아요 참고</span>`:'';
- return `<div class="priority-strip ${esc(tier)}"><span title="${esc(notes[tier])}">${esc(labels[tier])}</span>${taste}</div>`;
+ const gateBadge=tier==='priority'?`<span title="수집 게이트: ${esc(gate.label)}">${esc(gate.label)}</span>`:'';
+ return `<div class="priority-strip ${esc(tier)}"><span title="${esc(notes[tier])}">${esc(labels[tier])}</span>${gateBadge}${taste}</div>`;
 }
 function evidencePanel(v,r){
  if(sample(v))return '';
  const kind=C.screenKind(v,r),labels={film:'영화 단서',series:'드라마·시리즈 단서',unknown:'영상 종류 미확인',non_screen:'비영화 의심',user_screen:'사용자가 확인한 작품'};
  const li=C.languageInfo(v), language=li.badge;
  const audioLabel=C.LANGUAGE_LABELS[li.audio]||'언어 미확인',declaredLabel=C.LANGUAGE_LABELS[li.declared]||'언어 미확인';
- const manual=C.mediaOf(r)==='not_screen'?'사용자 제외 · 영화/드라마 아님':labels[kind];
- return `<div class="evidence"><div class="evidence-chips"><span>${esc(manual)}</span><span>${esc(language)}</span></div><details><summary>필터 판단 근거</summary><p>${esc(v.screenReason||'이전 수집 데이터에 종류 단서가 없습니다. 1.4 live 수집 후 갱신됩니다.')}<br>${esc(li.basis)}<br>업로더 음성 설정: ${esc(audioLabel)}<br>제목·설명 언어 설정: ${esc(declaredLabel)} (음성 언어와 별개)<br>실제 음성·자막·원작 제작국·감동결을 검증한 결과가 아닙니다.</p></details></div>`;
+ const manual=C.mediaOf(r)==='not_screen'?'사용자 제외 · 영화/드라마 아님':labels[kind],gate=C.screenGateInfo(v,r);
+ return `<div class="evidence"><div class="evidence-chips"><span>${esc(manual)}</span><span>${esc(language)}</span></div><details><summary>필터 판단 근거</summary><p>수집 게이트: ${esc(gate.label)}<br>${esc(v.screenReason||'메타데이터 영상 종류 단서가 없습니다.')}<br>${esc(li.basis)}<br>업로더 음성 설정: ${esc(audioLabel)}<br>제목·설명 언어 설정: ${esc(declaredLabel)} (음성 언어와 별개)<br>실제 음성·자막·원작 제작국·감동결을 검증한 결과가 아닙니다.</p></details></div>`;
 }
 function discoveryPanel(v,r){
  if(sample(v))return '';
@@ -153,12 +154,14 @@ function updateDiscoverySummary(){
  const scanned=channels.reduce((a,c)=>a+(Number(c.scannedUploads)||0),0);
  const cp=dataset.collectionPlan||{};const labels={english_focus:'영어 중심',english_only:'영어만',balanced:'다국어 균형',custom:'직접 비중'};
  const summaryData=dataset.collectionSummary||{},active=(cp.activeLanguages||[]).join(', ')||'미표시',dup=Number(summaryData.duplicateCandidatesSuppressed)||0;
- const ref=dataset.referenceSummary||{},api=dataset.apiUsage||{},cats=summaryData.sourceCategoryCounts||{};
+ const ref=dataset.referenceSummary||{},api=dataset.apiUsage||{},cats=summaryData.sourceCategoryCounts||{},gates=summaryData.screenGateCounts||{};
  const raw=Number(summaryData.rawAfterSafetyCap??summaryData.eligibleBeforeCap??dataset.videos.length)||0,kept=Number(summaryData.kept??dataset.videos.length)||0,reserve=Number(summaryData.reserveCount)||0;
  const pool=`원본 후보 ${raw}개 → 이번 검토 풀 ${kept}개${reserve?` · 예비 ${reserve}개`:''}`;
  const policy=summaryData.perChannelLimit?`한 채널 최대 ${summaryData.perChannelLimit}개 · 씨앗 출처 최대 ${summaryData.seedPoolPercent}% · 참고 출처 최대 ${summaryData.referencePoolPercent}%`:'';
  const mix=`검색 ${Number(cats.guided||0)+Number(cats.explore||0)} · 씨앗 ${Number(cats.seed||0)} · 참고 ${Number(cats.reference||0)} · 기타 ${Number(cats.configured||0)+Number(cats.other||0)}`;
- summary.innerHTML=`<summary>이번 수집 경로 보기 · ${esc(pool)}</summary><p><strong>검토 풀:</strong> ${esc(pool)}${policy?' · '+esc(policy):''}<br><strong>출처 구성:</strong> ${esc(mix)}. 씨앗/참고 비중은 상한이며 검색 후보가 부족하면 전체 표시 수가 목표보다 적을 수 있습니다.</p><p><strong>수집 언어:</strong> ${esc(labels[cp.preset]||'이전 방식')} · 이번 실행 언어 ${esc(active)} · ${esc(cp.retryRound||1)}차 탐색 · 이전 수집 ID ${esc(cp.excludedPreviousIds||0)}개 제외</p><p><strong>좋아요 반영:</strong> 씨앗 영상 ${esc(ref.seedResolved||0)}/${esc(ref.seedRequested||0)}개 확인 · 씨앗 채널 ${esc(ref.seedChannels||0)}개. 좋아요 영상 자체를 재추천하지 않고 해당 채널의 다른 업로드를 탐색합니다.</p><ul>${lines}</ul><p>채널 업로드 ${scanned}건을 조회했습니다. 정확한 영상 ID와 제목이 거의 같은 재업로드 후보 <strong>${esc(dup)}개</strong>를 중복 억제했습니다. 중복 판단은 보수적인 메타데이터 비교이며 영상 장면 자체를 비교한 것은 아닙니다.</p><p><strong>API 사용:</strong> 이번 실행 search.list ${esc(api.searchListCalls??'—')}회 · 기타 조회 ${esc(api.otherCalls??'—')}회. 전체 일일 잔여량은 Google Cloud에서 확인해야 합니다.</p><p>1.6에서는 원본 후보 전체를 숙제로 보여주지 않고, 출처·채널 쏠림을 줄인 검토 풀만 표시합니다. 화면 필터는 이 검토 풀 안에서 다시 적용됩니다.</p>`;
+ const gateSummary=`영화 주제 ${Number(gates.movie||0)} · TV 주제 ${Number(gates.tv||0)} · 메타데이터 보강 ${Number(gates.metadata||0)}`;
+ const rejected=`비영화 강한 단서 ${Number(summaryData.rejectedNonScreen||0)}개 · 채널 업로드 중 영화/드라마 근거 부족 ${Number(summaryData.rejectedSourceWithoutScreenEvidence||0)}개 제외`; 
+ summary.innerHTML=`<summary>이번 수집 경로 보기 · ${esc(pool)}</summary><p><strong>검토 풀:</strong> ${esc(pool)}${policy?' · '+esc(policy):''}<br><strong>영화·드라마 게이트:</strong> ${esc(gateSummary)}<br><strong>출처 구성:</strong> ${esc(mix)}. 씨앗/참고 비중은 상한입니다.</p><p><strong>수집 언어:</strong> ${esc(labels[cp.preset]||'이전 방식')} · 이번 실행 언어 ${esc(active)} · ${esc(cp.retryRound||1)}차 탐색 · 최근 수집 ID ${esc(cp.excludedPreviousIds||0)}개 제외</p><p><strong>좋아요 반영:</strong> 씨앗 영상 ${esc(ref.seedResolved||0)}/${esc(ref.seedRequested||0)}개 확인 · 씨앗 채널 ${esc(ref.seedChannels||0)}개. 좋아요는 출처 힌트이며 채널 전체를 영화로 간주하지 않습니다.</p><ul>${lines}</ul><p>채널 업로드 ${scanned}건을 조회했고, ${esc(rejected)}했습니다. 정확한 영상 ID와 제목이 거의 같은 재업로드 후보 <strong>${esc(dup)}개</strong>도 중복 억제했습니다.</p><p><strong>API 사용:</strong> 이번 실행 search.list ${esc(api.searchListCalls??'—')}회 · 기타 조회 ${esc(api.otherCalls??'—')}회. 전체 일일 잔여량은 Google Cloud에서 확인해야 합니다.</p><p>1.7은 YouTube Movies/TV 주제에서 먼저 검색한 뒤 감동결 검색어를 적용합니다. 주제 연결은 강한 수집 근거지만 실제 장면·감동결 검증은 아닙니다.</p>`;
 }
 function originPanel(v,r){
  if(sample(v))return '';
@@ -227,8 +230,8 @@ function applyDeployment(data){
  dataset=data;
  const stale=data.mode==='live'&&(!Number.isFinite(Date.parse(data.generatedAt))||Date.now()-Date.parse(data.generatedAt)>C.MAX_AGE);
  if(stale){dataset={...data,videos:[]};warn('수집 정보가 29일을 넘겨 표시하지 않습니다. GitHub Actions에서 live로 다시 수집해 주세요.');}
- else{$('#notice').classList.remove('error');$('#notice').textContent=data.mode==='demo'?'샘플 모드입니다. 제목·조회수는 기능 확인용 가상 데이터이며 실제 영상이 아닙니다. API 키를 등록하고 live로 실행하면 실제 목록으로 바뀝니다.':(data.warnings||[]).length?'수집 안내: '+data.warnings.join(' / '):'1.6.2 · 영화/드라마 근거와 기존 좋아요 기록을 이용해 후보를 우선 정렬합니다. 좋아요는 후보를 숨기지 않습니다.';}
- if(data.mode==='live'&&!['1.6','1.6.1'].includes(data.collectorVersion))warn('앱은 1.6.2이지만 수집 데이터는 이전 버전입니다. Actions에서 새 main / live 실행이 필요합니다.');
+ else{$('#notice').classList.remove('error');$('#notice').textContent=data.mode==='demo'?'샘플 모드입니다. 제목·조회수는 기능 확인용 가상 데이터이며 실제 영상이 아닙니다. API 키를 등록하고 live로 실행하면 실제 목록으로 바뀝니다.':(data.warnings||[]).length?'수집 안내: '+data.warnings.join(' / '):'1.7 · 영화·드라마 주제 안에서 먼저 찾고, 그 안에서 감동결·조회수·좋아요 취향 순으로 후보를 정리합니다.';}
+ if(data.mode==='live'&&data.collectorVersion!=='1.7')warn('앱은 1.7이지만 수집 데이터는 이전 버전입니다. Actions에서 새 main / live 실행이 필요합니다.');
  for(const v of dataset.videos){if(state.records[v.id]&&v.fetchedAt)state.records[v.id].cache=v;}
  state=C.normalize(state);persist();$('#mode').textContent=data.mode==='live'?'YouTube 연결':'SAMPLE';$('#mode').classList.toggle('live',data.mode==='live');
  const round=data.collectionPlan?.retryRound||'—';
@@ -284,7 +287,7 @@ $('#open-actions').onclick=()=>{const u=repoActionsUrl();if(u)window.open(u,'_bl
 $('#copy-seeds').onclick=copySeedIds;
 $('#find-more').onclick=async()=>{const current=Number(dataset.collectionPlan?.retryRound)||collectionPrefs.retryRound||1;collectionPrefs.retryRound=Math.min(3,current+1);saveCollectionPrefs();const u=repoActionsUrl();if(u)window.open(u,'_blank','noopener');await copyCollectionInstruction();};
 $('#no-harvest').onclick=()=>{if(dataset.mode!=='live'||!dataset.generatedAt){toast('실제 수집 목록에서만 수확 없음 기록을 남길 수 있습니다.');return;}const current=Number(dataset.collectionPlan?.retryRound)||collectionPrefs.retryRound||1;state=C.recordBatchFeedback(state,dataset.generatedAt,'no_harvest',current);persist();collectionPrefs.retryRound=Math.min(3,current+1);saveCollectionPrefs();toast(`이번 수집을 ‘수확 없음’으로 기록했습니다. 다음은 ${collectionPrefs.retryRound}차 재탐색을 추천합니다.`);};
-$('#reset-filters').onclick=()=>{filters=C.defaultFilters();saveFilters();toast('추천 기준으로 돌아왔습니다. 1만 이하·10만 조회 이상은 유지하되 영화/드라마 단서 미확인은 숨기지 않습니다.');};
+$('#reset-filters').onclick=()=>{filters=C.defaultFilters();saveFilters();toast('1.7 추천 기준으로 돌아왔습니다. 구독자 제한 없이 영화·드라마 게이트 후보 중 조회수 10만 이상을 우선 봅니다.');};
 $('#broad-filters').onclick=()=>{filters=C.broadFilters();saveFilters();toast('전체 후보 보기로 전환했습니다. 수집된 후보를 진단할 때 쓰며, 다음 수집 설정은 바뀌지 않습니다.');};
 function start(){loadState();loadFilters();loadCollectionPrefs();render();refresh(false);}
 $('#consent').onclick=()=>{try{localStorage.setItem(consentKey,'yes');}catch{}$('#consent-dialog').close();start();};

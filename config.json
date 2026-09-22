@@ -1,37 +1,13 @@
 {
   "queries": [
-    {
-      "q": "movie scene -prank -vlog -gameplay -trailer -lyrics",
-      "language": "en"
-    },
-    {
-      "q": "映画 ワンシーン -予告 -ゲーム",
-      "language": "ja"
-    },
-    {
-      "q": "escena de película -broma -tráiler",
-      "language": "es"
-    },
-    {
-      "q": "cena de filme -pegadinha -trailer",
-      "language": "pt"
-    },
-    {
-      "q": "scène de film -bande-annonce",
-      "language": "fr"
-    },
-    {
-      "q": "Filmszene -Trailer -Gameplay",
-      "language": "de"
-    },
-    {
-      "q": "scena di film -trailer",
-      "language": "it"
-    },
-    {
-      "q": "电影片段 -预告 -游戏",
-      "language": "zh-Hans"
-    }
+    {"q":"movie scene -prank -vlog -gameplay -trailer -lyrics","language":"en"},
+    {"q":"映画 ワンシーン -予告 -ゲーム","language":"ja"},
+    {"q":"escena de película -broma -tráiler","language":"es"},
+    {"q":"cena de filme -pegadinha -trailer","language":"pt"},
+    {"q":"scène de film -bande-annonce","language":"fr"},
+    {"q":"Filmszene -Trailer -Gameplay","language":"de"},
+    {"q":"scena di film -trailer","language":"it"},
+    {"q":"电影片段 -预告 -游戏","language":"zh-Hans"}
   ],
   "queries_per_run": 6,
   "recent_days": 30,
@@ -46,6 +22,6 @@
   "video_ids": [],
   "anchor_language": "en",
   "recent_order": "viewCount",
-  "archive_order": "relevance",
+  "archive_order": "viewCount",
   "recent_topic_id": "/m/02vxn"
 }

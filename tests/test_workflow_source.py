@@ -15,14 +15,17 @@ class WorkflowSourceTests(unittest.TestCase):
         self.assertEqual(c['queries_per_run'],6)
         self.assertEqual(c['results_per_search'],50)
         self.assertEqual(c['max_videos'],500)
+        self.assertEqual(c['archive_order'],'viewCount')
 
-    def test_v16_review_pool_settings_are_bounded(self):
+    def test_v17_review_pool_settings_are_bounded(self):
         import json
         d=json.loads((ROOT/'discovery.json').read_text(encoding='utf-8'))
-        self.assertEqual(d['review_pool_limit'],48)
-        self.assertEqual(d['per_channel_limit'],4)
-        self.assertEqual(d['seed_pool_percent'],30)
-        self.assertEqual(d['reference_pool_percent'],15)
+        self.assertEqual(d['review_pool_limit'],40)
+        self.assertEqual(d['per_channel_limit'],3)
+        self.assertEqual(d['seed_pool_percent'],25)
+        self.assertEqual(d['reference_pool_percent'],10)
         self.assertEqual(d['seed_pages_per_channel'],1)
+        self.assertEqual(d['screen_topics'],['movie','tv'])
+        self.assertTrue(d['source_requires_screen_evidence'])
 
 if __name__=='__main__':unittest.main()

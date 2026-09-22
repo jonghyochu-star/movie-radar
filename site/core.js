@@ -128,14 +128,14 @@
     return {code,source,basis,badge,audio,declared};
   }
   const preferredLanguages=()=>['en','ja','es','pt','fr','de','it','zh'];
-  const defaultFilters=()=>({schema:1,maxSubscribers:10000,minSeconds:0,maxSeconds:180,minViews:100000,content:'review',languages:preferredLanguages(),includeUnknownLanguage:true,balance:true,route:'all',mixDiscovery:true,shorts:'any',tasteAssist:true});
+  const defaultFilters=()=>({schema:1,maxSubscribers:0,minSeconds:0,maxSeconds:180,minViews:100000,content:'screen_gate',languages:preferredLanguages(),includeUnknownLanguage:true,balance:true,route:'all',mixDiscovery:true,shorts:'any',tasteAssist:true});
   const broadFilters=()=>({schema:1,maxSubscribers:0,minSeconds:0,maxSeconds:180,minViews:0,content:'all',languages:Object.keys(LANGUAGE_LABELS).filter(x=>x!=='unknown'),includeUnknownLanguage:true,balance:true,route:'all',mixDiscovery:true,shorts:'any',tasteAssist:true});
   function normalizeFilters(raw={}) {
     const f=defaultFilters(), numberKeys={maxSubscribers:[0,1000000000],minSeconds:[0,180],maxSeconds:[0,180],minViews:[0,100000000000]};
     for(const [k,[lo,hi]] of Object.entries(numberKeys)) if(Number.isInteger(raw[k])&&raw[k]>=lo&&raw[k]<=hi)f[k]=raw[k];
     // Empty/invalid UI inputs never make NaN comparisons silently accept data.
     if(f.minSeconds>f.maxSeconds){f.minSeconds=0;f.maxSeconds=180;}
-    if(['review','screen','film','all'].includes(raw.content))f.content=raw.content;
+    if(['screen_gate','review','screen','film','all'].includes(raw.content))f.content=raw.content==='review'?'screen_gate':raw.content;
     if(Array.isArray(raw.languages))f.languages=[...new Set(raw.languages.filter(x=>typeof x==='string'&&x!=='unknown'&&Object.hasOwn(LANGUAGE_LABELS,x)))];
     if(raw.route==='all'||Object.hasOwn(ROUTE_LABELS,raw.route))f.route=raw.route;
     if(['any','hinted','confirmed'].includes(raw.shorts))f.shorts=raw.shorts;
@@ -148,12 +148,22 @@
     if(mediaOf(r)==='screen'||originOf(r)==='non_korean'||isSample(v))return 'user_screen';
     return ['film','series','non_screen'].includes(v.screenKind)?v.screenKind:'unknown';
   }
+  function screenGateInfo(v={},r={}) {
+    if(mediaOf(r)==='screen')return {ok:true,label:'내가 영화·드라마로 확인',topics:[]};
+    const gates=Array.isArray(v.screenGate)?[...new Set(v.screenGate.filter(x=>['movie','tv','metadata','direct'].includes(x)))]:[];
+    if(gates.includes('movie')&&gates.includes('tv'))return {ok:true,label:'영화·TV 주제 검색',topics:['movie','tv']};
+    if(gates.includes('movie'))return {ok:true,label:'영화 주제 검색',topics:['movie']};
+    if(gates.includes('tv'))return {ok:true,label:'TV·드라마 주제 검색',topics:['tv']};
+    if(gates.includes('metadata')||['film','series'].includes(screenKind(v,r)))return {ok:true,label:'영화·드라마 메타데이터 단서',topics:[]};
+    if(gates.includes('direct'))return {ok:true,label:'직접 지정 후보',topics:[]};
+    return {ok:false,label:'영화·드라마 게이트 미확인',topics:[]};
+  }
   function filterReasons(v,r,f) {
     if(isSample(v))return []; // fictitious demo items are explicitly exempt from source checks
     const reasons=[],kind=screenKind(v,r),format=shortsInfo(v,r).status;
     if(f.route&&f.route!=='all'&&!routesOf(v).includes(f.route))reasons.push('route');
     if(format==='not_short'||(f.shorts==='hinted'&&!['hint','confirmed'].includes(format))||(f.shorts==='confirmed'&&format!=='confirmed'))reasons.push('format');
-    if(f.content==='review'&&kind==='non_screen')reasons.push('content');
+    if(f.content==='screen_gate'&&(kind==='non_screen'||!screenGateInfo(v,r).ok))reasons.push('content');
     if(f.content==='screen'&&!['film','series','user_screen'].includes(kind))reasons.push('content');
     if(f.content==='film'&&kind!=='film')reasons.push('content');
     if(f.maxSubscribers>0&&!(Number.isFinite(v.subscribers)&&v.subscribers>=0&&v.subscribers<=f.maxSubscribers))reasons.push('subscribers');
@@ -222,7 +232,7 @@
   function candidateTier(v={},r={}) {
     const kind=screenKind(v,r);
     if(kind==='non_screen')return 'low';
-    if(['film','series','user_screen'].includes(kind))return 'priority';
+    if(screenGateInfo(v,r).ok)return 'priority';
     return 'review';
   }
   function candidatePriorityGroup(v={},r={},profile={},tasteAssist=true) {
@@ -252,5 +262,5 @@
     return roundRobin([...groups.values()].map(g=>balanceLanguage?balanceVideos(g,languageOrder):g));
   }
 
-  return {formatOf, shortsInfo, routesOf, ROUTE_LABELS, mixRoutes, recordBatchFeedback, buildTasteProfile, tasteMatch, candidateTier, candidatePriorityGroup, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, broadFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
+  return {formatOf, shortsInfo, routesOf, ROUTE_LABELS, mixRoutes, recordBatchFeedback, buildTasteProfile, tasteMatch, candidateTier, candidatePriorityGroup, screenGateInfo, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, broadFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
 });

@@ -109,6 +109,8 @@ STRONG_NEGATIVE=[
  (r'\b(?:minecraft|roblox|fortnite|pubg|gameplay|free\s+fire|gta\s*[v56])\b','게임 플레이 단서'),
  (r'\b(?:prank|vlog|unboxing|makeup\s+tutorial|cooking\s+recipe|soccer\s+highlights|football\s+highlights)\b','브이로그·장난·생활·스포츠 단서'),
  (r'\b(?:pegadinha|broma|receta|maquillaje)\b|먹방|몰래카메라|게임플레이','생활·장난 콘텐츠 단서'),
+ (r'\b(?:(?:actor|director|cast|celebrity)\s+interview|interview\s+with|podcast|movie\s+review|film\s+review|reaction\s+video)\b','인터뷰·리뷰·팟캐스트 단서'),
+ (r'\b(?:camera\s+(?:review|rig|lens|gear)|lens\s+review|gimbal\s+review|microphone\s+review|filmmaking\s+gear)\b','촬영 장비·제품 단서'),
  (r'\b(?:official\s+trailer|teaser\s+trailer)\b|공식\s*예고편','예고편 단서 · 장면 편집과 구분'),
 ]
 
