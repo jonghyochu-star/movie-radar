@@ -20,15 +20,28 @@ class UiSourceTests(unittest.TestCase):
             self.assertNotEqual(pos,-1,control)
             snippet=html[max(0,pos-160):pos+500]
             self.assertIn('title=',snippet,control)
-    def test_version_is_15(self):
+    def test_version_is_151(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-        self.assertIn('version">1.5<',html)
+        self.assertIn('version">1.5.1<',html)
 
     def test_seed_copy_and_quota_summary_present(self):
         app=(ROOT/'site/app.js').read_text(encoding='utf-8')
         self.assertIn('seed_video_ids:',app)
         self.assertIn('likedSeedIds',app)
         self.assertIn('searchListCalls',app)
+
+
+    def test_refresh_waits_for_new_pages_deployment(self):
+        app=(ROOT/'site/app.js').read_text(encoding='utf-8')
+        html=(ROOT/'site/index.html').read_text(encoding='utf-8')
+        self.assertIn('data.generatedAt!==before',app)
+        self.assertIn('새 배포 확인',app)
+        self.assertIn('아직 이전 배포가 보입니다',app)
+        self.assertIn('새 수집 결과 확인',html)
+
+    def test_seed_not_passed_warning_exists(self):
+        app=(ROOT/'site/app.js').read_text(encoding='utf-8')
+        self.assertIn('이번 배포에는 좋아요 씨앗 ID가 전달되지 않음',app)
 
 if __name__=='__main__':
     unittest.main()
