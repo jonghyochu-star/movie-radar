@@ -128,8 +128,8 @@
     return {code,source,basis,badge,audio,declared};
   }
   const preferredLanguages=()=>['en','ja','es','pt','fr','de','it','zh'];
-  const defaultFilters=()=>({schema:1,maxSubscribers:10000,minSeconds:0,maxSeconds:180,minViews:100000,content:'review',languages:preferredLanguages(),includeUnknownLanguage:true,balance:true,route:'all',mixDiscovery:true,shorts:'any'});
-  const broadFilters=()=>({schema:1,maxSubscribers:0,minSeconds:0,maxSeconds:180,minViews:0,content:'all',languages:Object.keys(LANGUAGE_LABELS).filter(x=>x!=='unknown'),includeUnknownLanguage:true,balance:true,route:'all',mixDiscovery:true,shorts:'any'});
+  const defaultFilters=()=>({schema:1,maxSubscribers:10000,minSeconds:0,maxSeconds:180,minViews:100000,content:'review',languages:preferredLanguages(),includeUnknownLanguage:true,balance:true,route:'all',mixDiscovery:true,shorts:'any',tasteAssist:true});
+  const broadFilters=()=>({schema:1,maxSubscribers:0,minSeconds:0,maxSeconds:180,minViews:0,content:'all',languages:Object.keys(LANGUAGE_LABELS).filter(x=>x!=='unknown'),includeUnknownLanguage:true,balance:true,route:'all',mixDiscovery:true,shorts:'any',tasteAssist:true});
   function normalizeFilters(raw={}) {
     const f=defaultFilters(), numberKeys={maxSubscribers:[0,1000000000],minSeconds:[0,180],maxSeconds:[0,180],minViews:[0,100000000000]};
     for(const [k,[lo,hi]] of Object.entries(numberKeys)) if(Number.isInteger(raw[k])&&raw[k]>=lo&&raw[k]<=hi)f[k]=raw[k];
@@ -139,7 +139,7 @@
     if(Array.isArray(raw.languages))f.languages=[...new Set(raw.languages.filter(x=>typeof x==='string'&&x!=='unknown'&&Object.hasOwn(LANGUAGE_LABELS,x)))];
     if(raw.route==='all'||Object.hasOwn(ROUTE_LABELS,raw.route))f.route=raw.route;
     if(['any','hinted','confirmed'].includes(raw.shorts))f.shorts=raw.shorts;
-    for(const k of ['balance','includeUnknownLanguage','mixDiscovery'])if(typeof raw[k]==='boolean')f[k]=raw[k];
+    for(const k of ['balance','includeUnknownLanguage','mixDiscovery','tasteAssist'])if(typeof raw[k]==='boolean')f[k]=raw[k];
     return f;
   }
   function screenKind(v,r={}) {
@@ -196,6 +196,44 @@
     return {status:'unknown',label:'쇼츠 여부 미확인',reason:'3분 이하라는 이유만으로 Shorts로 확정하지 않았습니다.'};
   }
   function routesOf(v={}) {const a=Array.isArray(v.discoveryRoutes)?v.discoveryRoutes.filter(x=>typeof x==='string'&&Object.hasOwn(ROUTE_LABELS,x)):[];return a.length?[...new Set(a)]:['legacy'];}
+
+  const TASTE_ROUTES=new Set(['familiar','expand','work','open']);
+  function buildTasteProfile(videos=[],records={}) {
+    const byId=new Map((Array.isArray(videos)?videos:[]).filter(v=>v&&typeof v.id==='string').map(v=>[v.id,v]));
+    const channelCounts=Object.create(null),routeCounts=Object.create(null);
+    let likedCount=0,usableLikes=0;
+    for(const [id,r] of Object.entries(records||{})){
+      if(!r||r.rating!=='like')continue;
+      likedCount++;
+      const v=byId.get(id)||r.cache;
+      if(!v||typeof v!=='object')continue;
+      let used=false;
+      if(typeof v.channelId==='string'&&v.channelId){channelCounts[v.channelId]=(channelCounts[v.channelId]||0)+1;used=true;}
+      for(const route of routesOf(v))if(TASTE_ROUTES.has(route)){routeCounts[route]=(routeCounts[route]||0)+1;used=true;}
+      if(used)usableLikes++;
+    }
+    return {likedCount,usableLikes,channelCounts,routeCounts};
+  }
+  function tasteMatch(v={},profile={}) {
+    const channel=Boolean(v.channelId&&profile.channelCounts&&profile.channelCounts[v.channelId]>0);
+    const routes=routesOf(v).filter(route=>TASTE_ROUTES.has(route)&&profile.routeCounts&&profile.routeCounts[route]>0);
+    return {matched:channel||routes.length>0,channel,routes};
+  }
+  function candidateTier(v={},r={}) {
+    const kind=screenKind(v,r);
+    if(kind==='non_screen')return 'low';
+    if(['film','series','user_screen'].includes(kind))return 'priority';
+    return 'review';
+  }
+  function candidatePriorityGroup(v={},r={},profile={},tasteAssist=true) {
+    const tier=candidateTier(v,r),match=tasteAssist?tasteMatch(v,profile):{matched:false};
+    if(tier==='low')return 4;
+    if(tier==='priority'&&match.matched)return 0;
+    if(tier==='priority')return 1;
+    if(tier==='review'&&match.matched)return 2;
+    return 3;
+  }
+
   function recordBatchFeedback(state,generatedAt,outcome,retryRound=1,at=new Date().toISOString()) {
     if(!['no_harvest','useful'].includes(outcome))throw Error('지원하지 않는 수집 피드백입니다.');
     if(typeof generatedAt!=='string'||!Number.isFinite(Date.parse(generatedAt)))throw Error('현재 수집 시각을 확인할 수 없습니다.');
@@ -214,5 +252,5 @@
     return roundRobin([...groups.values()].map(g=>balanceLanguage?balanceVideos(g,languageOrder):g));
   }
 
-  return {formatOf, shortsInfo, routesOf, ROUTE_LABELS, mixRoutes, recordBatchFeedback, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, broadFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
+  return {formatOf, shortsInfo, routesOf, ROUTE_LABELS, mixRoutes, recordBatchFeedback, buildTasteProfile, tasteMatch, candidateTier, candidatePriorityGroup, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, broadFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
 });

@@ -20,9 +20,9 @@ class UiSourceTests(unittest.TestCase):
             self.assertNotEqual(pos,-1,control)
             snippet=html[max(0,pos-160):pos+500]
             self.assertIn('title=',snippet,control)
-    def test_version_is_161(self):
+    def test_version_is_162(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-        self.assertIn('version">1.6.1<',html)
+        self.assertIn('version">1.6.2<',html)
 
 
     def test_broad_candidate_button_exists(self):
@@ -56,6 +56,18 @@ class UiSourceTests(unittest.TestCase):
         self.assertIn('이번 검토 풀',app)
         self.assertIn('한 채널 최대',app)
         self.assertIn('씨앗 출처 최대',app)
+
+
+    def test_priority_and_taste_assist_ui_exists(self):
+        html=(ROOT/'site/index.html').read_text(encoding='utf-8')
+        app=(ROOT/'site/app.js').read_text(encoding='utf-8')
+        css=(ROOT/'site/styles.css').read_text(encoding='utf-8')
+        self.assertIn('value="priority"',html)
+        self.assertIn('id="taste-assist"',html)
+        self.assertIn('좋아요 취향 반영',html)
+        self.assertIn('candidatePriorityGroup',app)
+        self.assertIn('priorityPanel',app)
+        self.assertIn('.priority-strip',css)
 
 if __name__=='__main__':
     unittest.main()

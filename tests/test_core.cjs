@@ -86,3 +86,34 @@ test('mixing does not duplicate or lose candidates',()=>{const rows=[{id:'a',dis
 test('shorts preferences do not replace previous numeric criteria',()=>{const f=C.normalizeFilters({maxSubscribers:5000,minSeconds:65,maxSeconds:180,languages:['es'],shorts:'hinted',mixDiscovery:false});assert.equal(f.maxSubscribers,5000);assert.equal(f.minSeconds,65);assert.equal(f.shorts,'hinted');assert.equal(f.mixDiscovery,false);assert.deepEqual(f.languages,['es']);});
 test('batch feedback is stored without changing video ratings',()=>{let s=C.blank();s=C.recordBatchFeedback(s,'2026-09-19T00:00:00Z','no_harvest',1,'2026-09-19T01:00:00Z');assert.equal(s.batchFeedback.length,1);assert.equal(Object.keys(s.records).length,0);assert.equal(s.batchFeedback[0].retryRound,1);});
 test('batch feedback survives export normalize',()=>{let s=C.recordBatchFeedback(C.blank(),'2026-09-19T00:00:00Z','no_harvest',2,'2026-09-19T01:00:00Z');const x=C.normalize(C.exportData(s));assert.equal(x.batchFeedback[0].outcome,'no_harvest');assert.equal(x.batchFeedback[0].retryRound,2);});
+
+
+test('candidate tiers are evidence labels not scores',()=>{
+ assert.equal(C.candidateTier({...fvideo,screenKind:'film'},{}),'priority');
+ assert.equal(C.candidateTier({...fvideo,screenKind:'series'},{}),'priority');
+ assert.equal(C.candidateTier({...fvideo,screenKind:'unknown'},{}),'review');
+ assert.equal(C.candidateTier({...fvideo,screenKind:'non_screen'},{}),'low');
+ assert.equal(C.candidateTier({...fvideo,screenKind:'unknown'},{media:'screen'}),'priority');
+});
+test('taste profile uses likes only and available context',()=>{
+ const videos=[{...fvideo,id:'LikeVideo01',channelId:'chan-a',discoveryRoutes:['familiar']},{...fvideo,id:'BadVideo0001',channelId:'chan-b',discoveryRoutes:['open']}];
+ let records={};records['LikeVideo01']={rating:'like'};records['BadVideo0001']={rating:'dislike'};
+ const p=C.buildTasteProfile(videos,records);assert.equal(p.likedCount,1);assert.equal(p.usableLikes,1);assert.equal(p.channelCounts['chan-a'],1);assert.equal(p.channelCounts['chan-b'],undefined);assert.equal(p.routeCounts.familiar,1);
+});
+test('taste match can use channel or discovery route without filtering',()=>{
+ const profile={channelCounts:{'chan-a':1},routeCounts:{expand:2}};
+ assert(C.tasteMatch({...fvideo,channelId:'chan-a',discoveryRoutes:['open']},profile).matched);
+ assert(C.tasteMatch({...fvideo,channelId:'other',discoveryRoutes:['expand']},profile).matched);
+ assert(!C.tasteMatch({...fvideo,channelId:'other',discoveryRoutes:['open']},profile).matched);
+});
+test('priority grouping nudges order but keeps review candidates',()=>{
+ const profile={channelCounts:{'chan-a':1},routeCounts:{familiar:1}};
+ assert.equal(C.candidatePriorityGroup({...fvideo,channelId:'chan-a',screenKind:'film'}, {}, profile, true),0);
+ assert.equal(C.candidatePriorityGroup({...fvideo,channelId:'x',screenKind:'film'}, {}, profile, true),1);
+ assert.equal(C.candidatePriorityGroup({...fvideo,channelId:'x',screenKind:'unknown',discoveryRoutes:['familiar']}, {}, profile, true),2);
+ assert.equal(C.candidatePriorityGroup({...fvideo,channelId:'x',screenKind:'unknown',discoveryRoutes:['open']}, {}, profile, true),3);
+});
+test('taste assist preference survives filter normalization and does not change filter eligibility',()=>{
+ const a=C.normalizeFilters({tasteAssist:false}),b=C.normalizeFilters({tasteAssist:true});
+ assert.equal(a.tasteAssist,false);assert.equal(b.tasteAssist,true);assert.equal(C.matchesFilters(fvideo,{},a),C.matchesFilters(fvideo,{},b));
+});

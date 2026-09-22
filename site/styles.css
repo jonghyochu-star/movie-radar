@@ -37,3 +37,7 @@
 @media(max-width:630px){.discovery-controls>label{flex:1 1 100%}.discovery-controls select{width:100%}}
 
 .collection-panel{margin:16px 0;padding:18px;border:1px solid #d9def0;border-radius:14px;background:#fff}.collection-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end}.collection-grid label{display:flex;flex-direction:column;gap:6px}.collection-grid select,.collection-grid input{min-height:40px}.collection-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.collection-panel .muted{font-size:12px;color:#70778c;margin-left:8px}.collection-panel code{background:#f2f3f8;padding:2px 5px;border-radius:5px}@media(max-width:780px){.collection-grid{grid-template-columns:1fr}.collection-actions button{flex:1 1 auto}}
+
+
+/* 1.6.2: evidence tiers + browser-local taste assist. No hidden score. */
+.priority-strip{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:0 0 10px}.priority-strip span{font-size:11px;font-weight:700;border-radius:999px;padding:5px 8px;border:1px solid var(--line);background:#f5f7fb;color:#536176}.priority-strip.priority>span:first-child{background:#eef8f2;border-color:#b9ddc8;color:#296247}.priority-strip.review>span:first-child{background:#fff8e9;border-color:#ecd8a3;color:#7a6024}.priority-strip.low>span:first-child{background:#f3f4f6;border-color:#d5dae2;color:#6a7280}.priority-strip .taste{background:#f1ebff;border-color:#cfc0f4;color:#6649bd}.taste-assist{border-top:1px dashed var(--line);padding-top:10px}

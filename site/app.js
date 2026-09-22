@@ -40,8 +40,13 @@ function videosForTab(){
  let items=baseVideosForTab();
  if(exploring)items=items.filter(v=>C.matchesFilters(v,historyRecord(v),filters));
  if(q)items=items.filter(v=>{const r=historyRecord(v);return [v.title,r.label,r.memo,v.channelTitle].join(' ').toLowerCase().includes(q);});
- const sort=$('#sort').value;
- items.sort((a,b)=>{if(sort==='ratio')return (C.ratio(b)??-1)-(C.ratio(a)??-1)||(b.views??-1)-(a.views??-1);if(sort==='recent')return (Date.parse(b.publishedAt)||0)-(Date.parse(a.publishedAt)||0);if(sort==='saved')return (Date.parse(historyRecord(b).updatedAt)||0)-(Date.parse(historyRecord(a).updatedAt)||0);return (b.views??-1)-(a.views??-1);});
+ const sort=$('#sort').value, profile=C.buildTasteProfile(allVideos(),state.records);
+ const ordinarySort=rows=>rows.sort((a,b)=>{if(sort==='ratio')return (C.ratio(b)??-1)-(C.ratio(a)??-1)||(b.views??-1)-(a.views??-1);if(sort==='recent')return (Date.parse(b.publishedAt)||0)-(Date.parse(a.publishedAt)||0);if(sort==='saved')return (Date.parse(historyRecord(b).updatedAt)||0)-(Date.parse(historyRecord(a).updatedAt)||0);return (b.views??-1)-(a.views??-1);});
+ if(exploring&&sort==='priority'){
+   const buckets=[0,1,2,3,4].map(group=>items.filter(v=>C.candidatePriorityGroup(v,historyRecord(v),profile,filters.tasteAssist)===group));
+   return buckets.flatMap(group=>{ordinarySort(group);if(filters.mixDiscovery)return C.mixRoutes(group,filters.languages,filters.balance);return filters.balance?C.balanceVideos(group,filters.languages):group;});
+ }
+ ordinarySort(items);
  if(exploring&&filters.mixDiscovery)return C.mixRoutes(items,filters.languages,filters.balance);
  return exploring&&filters.balance?C.balanceVideos(items,filters.languages):items;
 }
@@ -91,7 +96,7 @@ function loadFilters(){
 function syncFilterControls(){
  $('#max-subs').value=String(filters.maxSubscribers);$('#content-filter').value=filters.content;
  $('#min-seconds').value=String(filters.minSeconds);$('#max-seconds').value=String(filters.maxSeconds);
- $('#min-views').value=String(filters.minViews);$('#balance').checked=filters.balance;
+ $('#min-views').value=String(filters.minViews);$('#balance').checked=filters.balance;$('#taste-assist').checked=filters.tasteAssist;
  $('#include-unknown-language').checked=filters.includeUnknownLanguage;
  $('#route-filter').value=filters.route;$('#shorts-filter').value=filters.shorts;$('#mix-discovery').checked=filters.mixDiscovery;
  const pair=`${filters.minSeconds}:${filters.maxSeconds}`;
@@ -106,8 +111,19 @@ function saveFilters(){
 function updateFilterSummary(){
  const exploring=['discover','review'].includes(tab);$('#filter-panel').hidden=!exploring;
  if(!exploring)return;
- const n=C.filterCounts(baseVideosForTab(),state.records,filters);
- $('#filter-summary').textContent=`이 탭의 미검토 ${n.total}개 → 영상 종류 ${n.content}개 → 구독자 ${n.subscribers}개 → 언어 ${n.language}개 → 길이 ${n.duration}개 → 조회수 ${n.views}개 → 수집 경로 ${n.route}개 → 쇼츠 조건 ${n.format}개. ${filters.mixDiscovery?'경로도 골고루 배치. ':''}${filters.balance?'언어·채널 균형 표시 중.':'선택한 정렬순 그대로 표시 중.'}`;
+ const base=baseVideosForTab(),n=C.filterCounts(base,state.records,filters),shown=base.filter(v=>C.matchesFilters(v,historyRecord(v),filters));
+ const profile=C.buildTasteProfile(allVideos(),state.records);
+ const priority=shown.filter(v=>C.candidateTier(v,historyRecord(v))==='priority').length;
+ const review=shown.filter(v=>C.candidateTier(v,historyRecord(v))==='review').length;
+ const taste=shown.filter(v=>C.tasteMatch(v,profile).matched).length;
+ $('#filter-summary').textContent=`이 탭의 미검토 ${n.total}개 → 영상 종류 ${n.content}개 → 구독자 ${n.subscribers}개 → 언어 ${n.language}개 → 길이 ${n.duration}개 → 조회수 ${n.views}개 → 수집 경로 ${n.route}개 → 쇼츠 조건 ${n.format}개. 현재 표시 후보 중 추천 우선 ${priority}개 · 확인 필요 ${review}개 · 좋아요 참고 ${taste}개. ${filters.tasteAssist?'좋아요는 순서에만 반영하며 후보를 숨기지 않습니다. ':''}${filters.mixDiscovery?'경로도 골고루 배치. ':''}${filters.balance?'언어·채널 균형 표시 중.':'선택한 정렬순 그대로 표시 중.'}`;
+}
+function priorityPanel(v,r){
+ const tier=C.candidateTier(v,r),profile=C.buildTasteProfile(allVideos(),state.records),match=C.tasteMatch(v,profile);
+ const labels={priority:'추천 우선',review:'확인 필요',low:'비영화 의심'};
+ const notes={priority:'영화·드라마 장면 단서가 비교적 분명합니다.',review:'메타데이터만으로 영화·드라마 여부가 확실하지 않아 직접 확인이 필요합니다.',low:'제품·게임·기타 비영화 자료 단서가 강합니다.'};
+ const taste=filters.tasteAssist&&match.matched?`<span class="taste" title="좋아요한 영상과 같은 ${match.channel?'채널':''}${match.channel&&match.routes.length?'·':''}${match.routes.length?'탐색 경로':''}가 겹칩니다. 취향 점수가 아니라 표시 순서 참고 신호입니다.">♥ 좋아요 참고</span>`:'';
+ return `<div class="priority-strip ${esc(tier)}"><span title="${esc(notes[tier])}">${esc(labels[tier])}</span>${taste}</div>`;
 }
 function evidencePanel(v,r){
  if(sample(v))return '';
@@ -170,7 +186,7 @@ function renderCard(v){const r=historyRecord(v), ratio=C.ratio(v), duration=type
    if(media!=='unknown')sub.push('<button data-action="media_reset" title="내가 남긴 영화·드라마 여부 확인을 취소합니다.">종류 확인 취소</button>');
  }
  sub.push('<button data-action="memo" title="작품명·감동 포인트·편집 아이디어 등 내 메모를 남깁니다.">메모</button>');if(r.rating)sub.push('<button data-action="unrate" title="좋아요 또는 별로 기록만 취소합니다. 원작·쇼츠 확인은 유지됩니다.">평가 취소</button>');if(r.stage!=='done')sub.push('<button data-action="done" title="이미 제작한 소재로 표시해 다시 제작 후보로 고르는 일을 줄입니다.">이미 제작함</button>');
- return `<article class="card${r.rating==='like'?' is-liked':''}${r.rating==='dislike'?' is-disliked':''}" data-id="${esc(v.id)}"><div class="thumb ${v.thumbnail?'':'empty'}">${thumb}</div><div class="body"><div class="meta"><span>${esc(v.channelTitle||'채널 미확인')}${labels?' · '+esc(labels):''}</span><span>${esc(duration)}</span></div><h4>${esc(v.title||'저장된 YouTube 링크')}</h4><div class="stats"><div><span>조회수</span><strong title="${esc(fmt(v.views))}">${short(v.views)}</strong></div><div><span>공개 구독자 수</span><strong title="${esc(fmt(v.subscribers))}">${short(v.subscribers)}</strong></div><div><span>조회 ÷ 구독</span><strong title="현재 조회수 ÷ 공개 구독자 수. 공개 구독자 수의 내림·미확인의 영향이 있으며 성공 점수가 아닙니다.">${ratio===null?'—':'약 '+ratio.toLocaleString('ko-KR',{maximumFractionDigits:1})+'배'}</strong></div></div><p class="reason">${sample(v)?'기능 확인용 가상 데이터입니다.':esc(v.source||'YouTube 공개 API 데이터')}<br>게시 ${dt(v.publishedAt)} · 수집 ${dt(v.fetchedAt)}</p>${discoveryPanel(v,r)}${evidencePanel(v,r)}${originPanel(v,r)}${r.label?`<div class="mynote"><strong>내 제목</strong> ${esc(r.label)}</div>`:''}${r.memo?`<div class="mynote">${esc(r.memo)}</div>`:''}<div class="buttons">${buttons}</div><div class="subbuttons">${sub.join('')}</div></div></article>`;
+ return `<article class="card${r.rating==='like'?' is-liked':''}${r.rating==='dislike'?' is-disliked':''}" data-id="${esc(v.id)}"><div class="thumb ${v.thumbnail?'':'empty'}">${thumb}</div><div class="body"><div class="meta"><span>${esc(v.channelTitle||'채널 미확인')}${labels?' · '+esc(labels):''}</span><span>${esc(duration)}</span></div><h4>${esc(v.title||'저장된 YouTube 링크')}</h4><div class="stats"><div><span>조회수</span><strong title="${esc(fmt(v.views))}">${short(v.views)}</strong></div><div><span>공개 구독자 수</span><strong title="${esc(fmt(v.subscribers))}">${short(v.subscribers)}</strong></div><div><span>조회 ÷ 구독</span><strong title="현재 조회수 ÷ 공개 구독자 수. 공개 구독자 수의 내림·미확인의 영향이 있으며 성공 점수가 아닙니다.">${ratio===null?'—':'약 '+ratio.toLocaleString('ko-KR',{maximumFractionDigits:1})+'배'}</strong></div></div><p class="reason">${sample(v)?'기능 확인용 가상 데이터입니다.':esc(v.source||'YouTube 공개 API 데이터')}<br>게시 ${dt(v.publishedAt)} · 수집 ${dt(v.fetchedAt)}</p>${priorityPanel(v,r)}${discoveryPanel(v,r)}${evidencePanel(v,r)}${originPanel(v,r)}${r.label?`<div class="mynote"><strong>내 제목</strong> ${esc(r.label)}</div>`:''}${r.memo?`<div class="mynote">${esc(r.memo)}</div>`:''}<div class="buttons">${buttons}</div><div class="subbuttons">${sub.join('')}</div></div></article>`;
 }
 function render(){
  const active=visibleRecords().map(([id,r])=>({id,...r}));
@@ -211,8 +227,8 @@ function applyDeployment(data){
  dataset=data;
  const stale=data.mode==='live'&&(!Number.isFinite(Date.parse(data.generatedAt))||Date.now()-Date.parse(data.generatedAt)>C.MAX_AGE);
  if(stale){dataset={...data,videos:[]};warn('수집 정보가 29일을 넘겨 표시하지 않습니다. GitHub Actions에서 live로 다시 수집해 주세요.');}
- else{$('#notice').classList.remove('error');$('#notice').textContent=data.mode==='demo'?'샘플 모드입니다. 제목·조회수는 기능 확인용 가상 데이터이며 실제 영상이 아닙니다. API 키를 등록하고 live로 실행하면 실제 목록으로 바뀝니다.':(data.warnings||[]).length?'수집 안내: '+data.warnings.join(' / '):'1.6.1 · 영화 단서 미확인을 기본에서 숨기지 않고, 오래된 수집 이력 때문에 새 후보가 마르는 현상을 줄였습니다.';}
- if(data.mode==='live'&&data.collectorVersion!=='1.6.1')warn('앱은 1.6.1이지만 수집 데이터는 이전 버전입니다. Actions에서 새 main / live 실행이 필요합니다.');
+ else{$('#notice').classList.remove('error');$('#notice').textContent=data.mode==='demo'?'샘플 모드입니다. 제목·조회수는 기능 확인용 가상 데이터이며 실제 영상이 아닙니다. API 키를 등록하고 live로 실행하면 실제 목록으로 바뀝니다.':(data.warnings||[]).length?'수집 안내: '+data.warnings.join(' / '):'1.6.2 · 영화/드라마 근거와 기존 좋아요 기록을 이용해 후보를 우선 정렬합니다. 좋아요는 후보를 숨기지 않습니다.';}
+ if(data.mode==='live'&&!['1.6','1.6.1'].includes(data.collectorVersion))warn('앱은 1.6.2이지만 수집 데이터는 이전 버전입니다. Actions에서 새 main / live 실행이 필요합니다.');
  for(const v of dataset.videos){if(state.records[v.id]&&v.fetchedAt)state.records[v.id].cache=v;}
  state=C.normalize(state);persist();$('#mode').textContent=data.mode==='live'?'YouTube 연결':'SAMPLE';$('#mode').classList.toggle('live',data.mode==='live');
  const round=data.collectionPlan?.retryRound||'—';
@@ -235,7 +251,7 @@ async function refresh(waitForNew=false){
  }catch(error){warn(error.message+' 보관함은 계속 사용할 수 있습니다.');render();}
  finally{button.disabled=false;button.textContent=original;}
 }
-$('#tabs').onclick=e=>{const b=e.target.closest('[data-tab]');if(!b)return;tab=b.dataset.tab;page=0;$('#search').value='';$('#sort').value=['discover','review'].includes(tab)?'views':'saved';render();};$('#content').onclick=e=>{const b=e.target.closest('[data-action]');if(b)handleAction(b.closest('[data-id]').dataset.id,b.dataset.action);};
+$('#tabs').onclick=e=>{const b=e.target.closest('[data-tab]');if(!b)return;tab=b.dataset.tab;page=0;$('#search').value='';$('#sort').value=['discover','review'].includes(tab)?'priority':'saved';render();};$('#content').onclick=e=>{const b=e.target.closest('[data-action]');if(b)handleAction(b.closest('[data-id]').dataset.id,b.dataset.action);};
 $('#layout').onclick=()=>{view=view==='card'?'grid':'card';page=0;render();};$('#next').onclick=()=>{page++;render();};$('#previous').onclick=()=>{page--;render();};$('#revisit').onclick=()=>{skipped.clear();page=0;render();};for(const id of ['#search','#sort'])$(id).addEventListener(id==='#search'?'input':'change',()=>{page=0;render();});$('#refresh').onclick=()=>refresh(true);
 $('#edit-form').onsubmit=e=>{e.preventDefault();snapshot();const v=allVideos().find(x=>x.id===editedId),r=state.records[editedId]||C.record(editedId);r.label=$('#edit-label').value.trim();r.memo=$('#edit-memo').value.trim();r.updatedAt=new Date().toISOString();if(v?.fetchedAt)r.cache=v;state.records[editedId]=r;const ok=persist();$('#edit-dialog').close();render();if(ok)toast('메모를 저장했습니다.',true);};$('#edit-cancel').onclick=()=>$('#edit-dialog').close();
 $('#add-link').onclick=()=>$('#link-dialog').showModal();$('#link-cancel').onclick=()=>$('#link-dialog').close();$('#link-form').onsubmit=e=>{e.preventDefault();try{const id=C.parseLink($('#link-url').value);snapshot();state=C.apply(state,{id},'like');const label=$('#link-label').value.trim();if(label)state.records[id].label=label;const ok=persist();$('#link-dialog').close();$('#link-form').reset();tab='likes';page=0;render();if(ok)toast('링크를 보관함에 저장했습니다.',true);}catch(error){toast(error.message);}};
@@ -258,6 +274,7 @@ for(const id of ['#min-seconds','#max-seconds'])$(id).onchange=()=>{
 $('#language-checks').onchange=()=>{filters.languages=[...document.querySelectorAll('[data-language]:checked')].map(x=>x.dataset.language);saveFilters();};
 $('#include-unknown-language').onchange=()=>{filters.includeUnknownLanguage=$('#include-unknown-language').checked;saveFilters();};
 $('#balance').onchange=()=>{filters.balance=$('#balance').checked;saveFilters();};
+$('#taste-assist').onchange=()=>{filters.tasteAssist=$('#taste-assist').checked;saveFilters();};
 $('#preferred-languages').onclick=()=>{filters.languages=C.preferredLanguages();filters.includeUnknownLanguage=false;saveFilters();};
 $('#all-languages').onclick=()=>{filters.languages=Object.keys(C.LANGUAGE_LABELS).filter(x=>x!=='unknown');filters.includeUnknownLanguage=true;saveFilters();};
 $('#collect-preset').onchange=()=>{collectionPrefs.preset=$('#collect-preset').value;saveCollectionPrefs();};
