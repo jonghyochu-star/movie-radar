@@ -52,3 +52,12 @@
 .backup-location{display:inline-block;margin-top:4px;color:#5f4bb6;font-weight:600}
 .storagebar>div:last-child{flex-wrap:wrap;justify-content:flex-end}
 @media(max-width:630px){.storagebar>div:last-child{width:100%;justify-content:flex-start}.storagebar>div:last-child button{flex:1 1 auto}}
+
+
+/* 1.8.2: explicit dislike reasons. */
+.dislike-reasons{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:18px 0}
+.dislike-reasons button{text-align:left;padding:14px;border:1px solid var(--line);background:#fff;border-radius:10px}
+.dislike-reasons button:hover{background:var(--soft);border-color:#cfc0f4}
+.dislike-reasons strong,.dislike-reasons span{display:block}
+.dislike-reasons span{font-size:11px;color:var(--muted);line-height:1.6;margin-top:5px}
+@media(max-width:560px){.dislike-reasons{grid-template-columns:1fr}}
