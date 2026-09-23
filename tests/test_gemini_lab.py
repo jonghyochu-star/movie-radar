@@ -1,8 +1,10 @@
 import importlib.util
 import json
+import io
 import os
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,6 +57,39 @@ class GeminiLabTests(unittest.TestCase):
     def test_extract_output_text(self):
         response = {"steps": [{"type": "model_output", "content": [{"type": "text", "text": "{\"a\":1}"}]}]}
         self.assertEqual(M.extract_output_text(response), '{"a":1}')
+
+    def test_http_503_retries_then_succeeds(self):
+        result = {
+            "screen_scene_decision": "no",
+            "content_type": "real_life_or_vlog",
+            "confidence": "high",
+            "why": ["실제 인물 촬영"],
+            "relationship": [],
+            "story_arc": "불명확",
+            "emotional_turn": False,
+            "turn_timestamp": "",
+            "story_completeness": "moment_only",
+            "aftertaste": "weak",
+            "summary_ko": "실제 인물 영상이다.",
+            "preference_features": [],
+        }
+        response = {
+            "status": "completed",
+            "steps": [{"type": "model_output", "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}],
+            "usage": {},
+        }
+        class FakeResponse:
+            def __enter__(self):
+                return io.StringIO(json.dumps(response, ensure_ascii=False))
+            def __exit__(self, *args):
+                return False
+        transient = M.HTTPError("https://example.invalid", 503, "Service Unavailable", None, None)
+        with mock.patch.object(M, "urlopen", side_effect=[transient, FakeResponse()]) as open_mock, \
+             mock.patch.object(M.time, "sleep") as sleep_mock:
+            got, usage = M.call_gemini("secret", "https://youtu.be/AbCdEfGhI01")
+        self.assertEqual(got["screen_scene_decision"], "no")
+        self.assertEqual(open_mock.call_count, 2)
+        sleep_mock.assert_called_once()
 
     def test_report_contains_no_api_key(self):
         result = {
