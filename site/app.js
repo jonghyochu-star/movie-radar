@@ -219,13 +219,13 @@ function renderCard(v){
  const isFollowup=['review','discover'].includes(tab)&&followupId===v.id&&followupDraft;
  let candidate='';
  if(isFollowup){
-   candidate=`<button class="candidate ${followupDraft.candidate?'selected':''}" data-action="followup_candidate" title="세부 판단과 함께 제작 후보로 저장합니다.">${followupDraft.candidate?'★ 제작 후보 ✓':'☆ 제작 후보'}</button>`;
+   candidate='<button class="candidate" data-action="followup_candidate" title="결 맞음 + 제작 후보로 저장하고 다음 영상으로 넘어갑니다.">☆ 제작 후보 → 다음</button>';
  }else if(r.stage==='candidate')candidate='<button class="candidate selected" data-action="uncandidate" title="제작 후보에서 빼되 결 맞음 평가는 유지됩니다.">★ 제작 후보 ✓</button>';
  else if(r.stage==='done')candidate='<button class="candidate selected" data-action="reopen">제작 후보로 되돌리기</button>';
  else candidate='<button class="candidate" data-action="candidate" title="실제로 만들고 싶은 소재입니다. 누르면 결 맞음도 함께 저장됩니다.">☆ 제작 후보</button>';
- const followupOverused=isFollowup?Boolean(followupDraft.overused):r.freshness==='overused';
- const followupWeak=isFollowup?Boolean(followupDraft.weak):r.story==='weak';
- const quality=(r.rating==='like'||isFollowup)?`<div class="quality-row${isFollowup?' followup':''}"><span>${isFollowup?'결 맞음 · 세부 판단 후 저장':'결 맞음 세부'}</span><button class="${followupOverused?'selected':''}" data-action="${isFollowup?'followup_overused':'toggle_overused'}">많이 본 소재${followupOverused?' ✓':''}</button><button class="${followupWeak?'selected':''}" data-action="${isFollowup?'followup_weak':'toggle_weak_story'}">전개 약함${followupWeak?' ✓':''}</button>${isFollowup?'<button class="followup-done" data-action="followup_done">선택 완료 · 다음 영상</button>':''}</div>`:'';
+ const followupOverused=!isFollowup&&r.freshness==='overused';
+ const followupWeak=!isFollowup&&r.story==='weak';
+ const quality=(r.rating==='like'||isFollowup)?`<div class="quality-row${isFollowup?' followup':''}"><span>${isFollowup?'결 맞음 · 하나를 고르면 바로 다음 영상':'결 맞음 세부'}</span><button class="${followupOverused?'selected':''}" data-action="${isFollowup?'followup_overused':'toggle_overused'}">많이 본 소재${isFollowup?' → 다음':followupOverused?' ✓':''}</button><button class="${followupWeak?'selected':''}" data-action="${isFollowup?'followup_weak':'toggle_weak_story'}">전개 약함${isFollowup?' → 다음':followupWeak?' ✓':''}</button>${isFollowup?'<button class="followup-done" data-action="followup_done">해당 없음 → 다음</button>':''}</div>`:'';
  const reviewExtra=tab==='review'?'<button class="later-link" data-action="later">나중에</button>':'';
  const stageActions=r.stage==='candidate'?'<button class="done-action" data-action="done">제작 완료</button>':'';
  const details=[];
@@ -292,24 +292,21 @@ function handleAction(id,action){
    requestAnimationFrame(()=>document.querySelector(`[data-id="${CSS.escape(id)}"] .quality-row.followup`)?.scrollIntoView({block:'nearest',behavior:'smooth'}));
    return;
  }
- if(reviewing&&followupId===id&&action==='followup_overused'){followupDraft.overused=!followupDraft.overused;render();return;}
- if(reviewing&&followupId===id&&action==='followup_weak'){followupDraft.weak=!followupDraft.weak;render();return;}
- if(reviewing&&followupId===id&&action==='followup_candidate'){followupDraft.candidate=!followupDraft.candidate;render();return;}
- if(reviewing&&followupId===id&&action==='followup_cancel'){followupId=null;followupDraft=null;render();return;}
- if(reviewing&&followupId===id&&action==='followup_done'){
+ if(reviewing&&followupId===id&&['followup_overused','followup_weak','followup_candidate','followup_done'].includes(action)){
    snapshot();
    try{
      state=C.apply(state,v,'like');
-     if(followupDraft.overused)state=C.apply(state,v,'toggle_overused');
-     if(followupDraft.weak)state=C.apply(state,v,'toggle_weak_story');
-     if(followupDraft.candidate)state=C.apply(state,v,'candidate');
+     if(action==='followup_overused')state=C.apply(state,v,'toggle_overused');
+     if(action==='followup_weak')state=C.apply(state,v,'toggle_weak_story');
+     if(action==='followup_candidate')state=C.apply(state,v,'candidate');
    }catch(error){toast(error.message);return;}
-   const detail=[followupDraft.overused?'많이 본 소재':null,followupDraft.weak?'전개 약함':null,followupDraft.candidate?'제작 후보':null].filter(Boolean);
+   const detail=action==='followup_overused'?'많이 본 소재':action==='followup_weak'?'전개 약함':action==='followup_candidate'?'제작 후보':'';
    followupId=null;followupDraft=null;
    const ok=persist();render();
-   if(ok)toast(`결 맞음${detail.length?' · '+detail.join(' · '):''}으로 저장했습니다.`,true);
+   if(ok)toast(`결 맞음${detail?' · '+detail:''}으로 저장하고 다음 후보로 이동했습니다.`,true);
    return;
  }
+ if(reviewing&&followupId===id&&action==='followup_cancel'){followupId=null;followupDraft=null;render();return;}
 
  if(action==='dislike_reason'){dislikeId=id;$('#dislike-dialog').showModal();return;}
  if(action==='memo'){editedId=id;$('#edit-label').value=historyRecord(v).label||'';$('#edit-memo').value=historyRecord(v).memo||'';$('#edit-dialog').showModal();return;}
