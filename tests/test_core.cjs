@@ -3,7 +3,7 @@ const v={id:'AbCdEfGhI01',title:'test',views:1000,subscribers:100,fetchedAt:new 
 test('like then candidate keeps like',()=>{let s=C.apply(C.apply(C.blank(),v,'origin_foreign'),v,'like');s=C.apply(s,v,'candidate');assert.equal(s.records[v.id].rating,'like');assert.equal(s.records[v.id].stage,'candidate');});
 test('candidate removal not dislike',()=>{let s=C.apply(C.apply(C.apply(C.blank(),v,'origin_foreign'),v,'like'),v,'candidate');s=C.apply(s,v,'uncandidate');assert.equal(s.records[v.id].rating,'like');assert.equal(s.records[v.id].stage,null);});
 test('done from discovery neutral rating',()=>{const s=C.apply(C.blank(),v,'done');assert.equal(s.records[v.id].rating,null);assert.equal(s.records[v.id].stage,'done');});
-test('unrate keeps production stage',()=>{let s=C.apply(C.apply(C.apply(C.blank(),v,'origin_foreign'),v,'like'),v,'candidate');s=C.apply(s,v,'unrate');assert.equal(s.records[v.id].rating,null);assert.equal(s.records[v.id].stage,'candidate');});
+test('unrate clears active candidate because candidate implies tone match',()=>{let s=C.apply(C.apply(C.apply(C.blank(),v,'origin_foreign'),v,'like'),v,'candidate');s=C.apply(s,v,'unrate');assert.equal(s.records[v.id].rating,null);assert.equal(s.records[v.id].stage,null);});
 test('state input remains immutable',()=>{const s=C.blank();C.apply(s,v,'like');assert.equal(Object.keys(s.records).length,0);});
 test('ratio unknown and zero',()=>{assert.equal(C.ratio(v),10);assert.equal(C.ratio({...v,subscribers:0}),null);assert.equal(C.ratio({...v,subscribers:null}),null);});
 test('backup removes API metadata',()=>{const b=C.exportData(C.apply(C.blank(),v,'like'));assert.equal(b.records[v.id].cache,undefined);assert.equal(b.records[v.id].rating,'like');});
