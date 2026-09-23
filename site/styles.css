@@ -150,3 +150,11 @@
   .key-stats strong{font-size:19px}
   .utility-panel>summary{padding:13px}
 }
+
+
+/* 1.9.2 — immediate detail follow-up after 결 맞음. */
+.quality-row.followup{margin-top:10px;padding:12px;border:1px solid #cfc1f2;background:#f6f2ff;box-shadow:0 4px 14px #7155d912}
+.quality-row.followup>span{flex-basis:100%;font-size:11px;font-weight:800;color:#5d46ad;margin-bottom:2px}
+.quality-row .followup-done{margin-left:auto;background:#7155d9;color:#fff;border-color:#7155d9;font-weight:700}
+.quality-row .followup-done:hover{background:#6146c7;color:#fff}
+@media(max-width:630px){.quality-row .followup-done{flex-basis:100%;margin-left:0}}
