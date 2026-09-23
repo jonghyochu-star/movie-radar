@@ -66,6 +66,8 @@ jobs:
             movie-radar-history-${{ github.repository_id }}-
       - name: Test collector and settings
         run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Test browser logic
+        run: node --test tests/test_core.cjs
       - name: Build demo or collect YouTube data
         env:
           RUN_MODE: ${{ github.event_name == 'schedule' && 'live' || inputs.mode }}
