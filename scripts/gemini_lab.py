@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Movie Radar Gemini Lab v0.1
+"""Movie Radar Gemini Lab v0.1.1
 
 One-video blind evaluation using Gemini video understanding via a public YouTube URL.
 - Never writes or prints GEMINI_API_KEY.
@@ -13,6 +13,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -174,21 +175,47 @@ def call_gemini(api_key: str, url: str, model: str = DEFAULT_MODEL) -> tuple[dic
             "Accept": "application/json",
         },
     )
-    try:
-        with urlopen(req, timeout=240) as r:
-            response = json.load(r)
-    except HTTPError as exc:
-        # Never include body/URL because provider errors can echo request details.
-        messages = {
-            400: "Gemini 요청 형식 또는 영상 URL을 확인하세요.",
-            401: "Gemini API 인증에 실패했습니다. GEMINI_API_KEY를 확인하세요.",
-            403: "Gemini API 사용 권한/프로젝트 설정을 확인하세요.",
-            404: "요청 모델 또는 공개 영상을 찾지 못했습니다.",
-            429: "Gemini API 사용 한도에 도달했습니다. 잠시 뒤 다시 시도하세요.",
-        }
-        raise LabError(messages.get(exc.code, f"Gemini API 요청 실패 (HTTP {exc.code}).")) from None
-    except (URLError, TimeoutError):
-        raise LabError("Gemini API 연결 시간이 초과되었거나 네트워크 요청에 실패했습니다.") from None
+    response = None
+    retryable = {429, 500, 502, 503, 504}
+    max_attempts = 4
+    for attempt in range(max_attempts):
+        try:
+            with urlopen(req, timeout=240) as r:
+                response = json.load(r)
+            break
+        except HTTPError as exc:
+            # Never include body/URL because provider errors can echo request details.
+            if exc.code in retryable and attempt < max_attempts - 1:
+                retry_after = None
+                try:
+                    retry_after = int((exc.headers or {}).get("Retry-After", ""))
+                except (ValueError, TypeError, AttributeError):
+                    retry_after = None
+                delay = retry_after if retry_after is not None else min(8, 2 ** attempt)
+                print(f"Gemini 일시 오류 HTTP {exc.code}; {delay}초 뒤 재시도 {attempt + 2}/{max_attempts}.", file=sys.stderr)
+                time.sleep(delay)
+                continue
+            messages = {
+                400: "Gemini 요청 형식 또는 영상 URL을 확인하세요.",
+                401: "Gemini API 인증에 실패했습니다. GEMINI_API_KEY를 확인하세요.",
+                403: "Gemini API 사용 권한/프로젝트 설정을 확인하세요.",
+                404: "요청 모델 또는 공개 영상을 찾지 못했습니다.",
+                429: "Gemini API 사용 한도에 도달했습니다. 잠시 뒤 다시 시도하세요.",
+                500: "Gemini 서비스가 일시적으로 불안정합니다. 잠시 뒤 다시 시도하세요.",
+                502: "Gemini 서비스가 일시적으로 불안정합니다. 잠시 뒤 다시 시도하세요.",
+                503: "Gemini 서비스가 일시적으로 혼잡하거나 불안정합니다. 자동 재시도 후에도 실패했습니다.",
+                504: "Gemini 서비스 응답 시간이 초과되었습니다. 잠시 뒤 다시 시도하세요.",
+            }
+            raise LabError(messages.get(exc.code, f"Gemini API 요청 실패 (HTTP {exc.code}).")) from None
+        except (URLError, TimeoutError):
+            if attempt < max_attempts - 1:
+                delay = min(8, 2 ** attempt)
+                print(f"Gemini 네트워크 일시 오류; {delay}초 뒤 재시도 {attempt + 2}/{max_attempts}.", file=sys.stderr)
+                time.sleep(delay)
+                continue
+            raise LabError("Gemini API 연결 시간이 초과되었거나 네트워크 요청에 실패했습니다.") from None
+    if response is None:
+        raise LabError("Gemini 응답을 받지 못했습니다.")
     if response.get("status") not in {None, "completed"}:
         raise LabError(f"Gemini 분석이 완료되지 않았습니다: {response.get('status', 'unknown')}")
     raw = extract_output_text(response)
@@ -237,7 +264,7 @@ def write_reports(out_dir: Path, video_url: str, model: str, result: dict, usage
     vid = youtube_id(video_url)
     payload = {
         "schema": 1,
-        "labVersion": "0.1",
+        "labVersion": "0.1.1",
         "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "videoId": vid,
         "videoUrl": canonical_youtube_url(video_url),
@@ -255,7 +282,7 @@ def write_reports(out_dir: Path, video_url: str, model: str, result: dict, usage
     rel = ", ".join(result.get("relationship", [])) or "미확인"
     feats = ", ".join(result.get("preference_features", [])) or "없음"
     verdict = "비교 안 함" if not comp.get("comparable") else ("일치" if comp.get("correct") else "불일치")
-    md = f"""# Movie Radar Gemini Lab v0.1\n\n- 영상 ID: `{vid}`\n- 모델: `{model}`\n- 사람이 넣은 정답: `{expected}`\n- 블라인드 비교: **{verdict}**\n\n## Gemini 판별\n\n- 실제 영화·드라마 계열 장면: **{result.get('screen_scene_decision')}**\n- 콘텐츠 유형: **{result.get('content_type')}**\n- 확신도: **{result.get('confidence')}**\n\n### 근거\n{why}\n\n## 이야기 분석\n\n- 관계: {rel}\n- 흐름: {result.get('story_arc')}\n- 감정 전환: {result.get('emotional_turn')}\n- 전환 시각: {result.get('turn_timestamp') or '없음'}\n- 이야기 완결성: {result.get('story_completeness')}\n- 여운: {result.get('aftertaste')}\n- 요약: {result.get('summary_ko')}\n- 취향 특징: {feats}\n\n## 실제 API 사용량\n\n- 입력 토큰: {c['input_tokens']:,}\n- 도구 사용 토큰: {c['tool_use_tokens']:,}\n- 출력 토큰: {c['output_tokens']:,}\n- thinking 토큰: {c['thought_tokens']:,}\n- 유료 단가 기준 대략 비용: **${c['rough_paid_usd']:.6f}**\n\n> {c['note']}\n"""
+    md = f"""# Movie Radar Gemini Lab v0.1.1\n\n- 영상 ID: `{vid}`\n- 모델: `{model}`\n- 사람이 넣은 정답: `{expected}`\n- 블라인드 비교: **{verdict}**\n\n## Gemini 판별\n\n- 실제 영화·드라마 계열 장면: **{result.get('screen_scene_decision')}**\n- 콘텐츠 유형: **{result.get('content_type')}**\n- 확신도: **{result.get('confidence')}**\n\n### 근거\n{why}\n\n## 이야기 분석\n\n- 관계: {rel}\n- 흐름: {result.get('story_arc')}\n- 감정 전환: {result.get('emotional_turn')}\n- 전환 시각: {result.get('turn_timestamp') or '없음'}\n- 이야기 완결성: {result.get('story_completeness')}\n- 여운: {result.get('aftertaste')}\n- 요약: {result.get('summary_ko')}\n- 취향 특징: {feats}\n\n## 실제 API 사용량\n\n- 입력 토큰: {c['input_tokens']:,}\n- 도구 사용 토큰: {c['tool_use_tokens']:,}\n- 출력 토큰: {c['output_tokens']:,}\n- thinking 토큰: {c['thought_tokens']:,}\n- 유료 단가 기준 대략 비용: **${c['rough_paid_usd']:.6f}**\n\n> {c['note']}\n"""
     (out_dir / "gemini-lab-report.md").write_text(md, encoding="utf-8")
 
 
