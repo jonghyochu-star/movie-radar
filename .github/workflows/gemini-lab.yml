@@ -1,0 +1,58 @@
+name: Movie Radar Gemini Lab
+
+on:
+  workflow_dispatch:
+    inputs:
+      youtube_url:
+        description: '분석할 공개 YouTube 영상 URL'
+        type: string
+        required: true
+      expected_label:
+        description: '사람 정답(블라인드 검증용 · Gemini에게는 전달하지 않음)'
+        type: choice
+        required: true
+        default: unknown
+        options:
+          - unknown
+          - movie_drama
+          - not_movie_drama
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Read project files
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - name: Test Gemini Lab offline
+        run: python -m unittest tests/test_gemini_lab.py -v
+
+      - name: Analyze one YouTube video with Gemini
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_URL: ${{ inputs.youtube_url }}
+          EXPECTED_LABEL: ${{ inputs.expected_label }}
+        run: |
+          python scripts/gemini_lab.py \
+            --youtube-url "$YOUTUBE_URL" \
+            --expected "$EXPECTED_LABEL" \
+            --out gemini-lab-output
+
+      - name: Upload Gemini Lab report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-lab-report-${{ github.run_number }}
+          path: gemini-lab-output
+          retention-days: 14
+          if-no-files-found: error
