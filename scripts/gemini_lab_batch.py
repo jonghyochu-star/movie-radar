@@ -10,8 +10,13 @@ import argparse
 import json
 import os
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+_SCRIPT_DIR = str(Path(__file__).resolve().parent)
+if _SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPT_DIR)
 
 from gemini_lab import (
     DEFAULT_MODEL, LabError, call_gemini, canonical_youtube_url,
