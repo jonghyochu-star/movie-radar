@@ -127,7 +127,7 @@ class TestCollect(unittest.TestCase):
                         if v['id']==HIDDEN:v['snippet']['defaultAudioLanguage']='hi'
                 return data
         out=m.collect(Mixed(),self.config())
-        self.assertEqual(out['collectorVersion'],'1.8')
+        self.assertEqual(out['collectorVersion'],'1.9')
         missing=next(v for v in out['videos'] if v['id']==GOOD)
         audio=next(v for v in out['videos'] if v['id']==HIDDEN)
         self.assertEqual((missing['language'],missing['declaredLanguage'],missing['languageSource']),('unknown','en','unknown'))
@@ -169,8 +169,8 @@ class TestCollect(unittest.TestCase):
     def test_cache_history_roundtrip(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'history.json';fp=m.title_token_hashes('A father gives her a second chance tonight')
-            m.save_cache_history(p,[GOOD],[fp]);ids,fps=m.load_cache_history(p)
-            self.assertIn(GOOD,ids);self.assertEqual(fps,[fp])
+            m.save_cache_history(p,[GOOD],[fp],{GOOD:{'publishedAt':'2026-09-18T00:00:00Z','snapshots':[{'at':'2026-09-18T01:00:00Z','views':100000}]}});ids,fps=m.load_cache_history(p)
+            self.assertIn(GOOD,ids);self.assertEqual(fps,[fp]);self.assertIn(GOOD,m.load_view_tracking(p))
     def test_recent_history_is_bounded_and_ordered(self):
         ids=[('A'+format(i,'010d'))[-11:] for i in range(450)]
         kept=m.ordered_video_ids(ids)
@@ -184,4 +184,4 @@ class V18MetadataTests(unittest.TestCase):
     def test_discovery_labels_field_supported_in_output_contract(self):
         text=(ROOT/'scripts/collect.py').read_text(encoding='utf-8')
         self.assertIn("'discoveryLabels':discovery_labels.get(vid,[])",text)
-        self.assertIn("'collectorVersion':'1.8'",text)
+        self.assertIn("'collectorVersion':'1.9'",text)
