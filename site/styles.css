@@ -47,3 +47,8 @@
 .priority-strip .taste.pref-adjacent{font-weight:600}
 .priority-strip .taste.pref-explore{opacity:.86}
 .priority-strip .taste.pref-low{opacity:.68}
+
+/* 1.8.1: local backup-folder status. */
+.backup-location{display:inline-block;margin-top:4px;color:#5f4bb6;font-weight:600}
+.storagebar>div:last-child{flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:630px){.storagebar>div:last-child{width:100%;justify-content:flex-start}.storagebar>div:last-child button{flex:1 1 auto}}

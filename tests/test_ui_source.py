@@ -20,9 +20,9 @@ class UiSourceTests(unittest.TestCase):
             self.assertNotEqual(pos,-1,control)
             snippet=html[max(0,pos-160):pos+500]
             self.assertIn('title=',snippet,control)
-    def test_version_is_18(self):
+    def test_version_is_181(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-        self.assertIn('version">1.8<',html)
+        self.assertIn('version">1.8.1<',html)
 
 
     def test_broad_candidate_button_exists(self):
@@ -92,3 +92,15 @@ def _v18_extra(self):
     self.assertIn('취향 데이터 좋아요',app)
     self.assertIn('내 취향 우선',html)
 UiSourceTests.test_v18_like_dislike_learning=_v18_extra
+
+
+def _v181_backup_folder(self):
+    html=(ROOT/'site/index.html').read_text(encoding='utf-8')
+    app=(ROOT/'site/app.js').read_text(encoding='utf-8')
+    for token in ['id="backup-folder"','id="backup-location"','백업 폴더 지정/변경']:
+        self.assertIn(token,html)
+    for token in ['showDirectoryPicker','indexedDB.open','getDirectoryHandle','getFileHandle','createWritable','backupFallback','startIn:\'documents\'']:
+        self.assertIn(token,app)
+    self.assertIn('Movie Radar',app)
+    self.assertIn('Backups',app)
+UiSourceTests.test_v181_backup_folder=_v181_backup_folder
