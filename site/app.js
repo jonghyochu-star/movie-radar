@@ -3,7 +3,7 @@ const C=MovieCore, $=s=>document.querySelector(s);
 const prefix='movie-radar:v1:'+location.pathname.replace(/index\.html$/,'');
 const key=prefix+':records', consentKey=prefix+':consent';
 let storageBlocked=false;
-const filterKey=prefix+':filters-v1.8.2', collectionKey=prefix+':collection-v1.4';
+const filterKey=prefix+':filters-v1.9', collectionKey=prefix+':collection-v1.4';
 let filters=C.defaultFilters();
 const defaultCollectionPrefs=()=>({preset:'english_focus',customWeights:'en:70,ja:5,es:5,pt:5,fr:5,de:4,it:3,zh-Hans:3',retryRound:1});
 let collectionPrefs=defaultCollectionPrefs();
@@ -61,7 +61,7 @@ function videosForTab(){
  if(exploring&&sort==='priority'){
    // Preserve movie/TV evidence first, then learn from BOTH likes and dislikes without hiding candidates.
    const tiers=['priority','review','low'];let ordered=[];
-   for(const tier of tiers){let group=items.filter(v=>C.candidateTier(v,historyRecord(v))===tier);ordinarySort(group);group=C.personalizedBlend(group,profile,filters.tasteAssist);if(filters.balance)group=C.balanceVideos(group,filters.languages);ordered.push(...group);}
+   for(const tier of tiers){let group=items.filter(v=>C.candidateTier(v,historyRecord(v))===tier);group.sort((a,b)=>C.audienceRank(a)-C.audienceRank(b)||(b.views??-1)-(a.views??-1));group=C.personalizedBlend(group,profile,filters.tasteAssist);if(filters.balance)group=C.balanceVideos(group,filters.languages);ordered.push(...group);}
    return ordered;
  }
  ordinarySort(items);
@@ -112,7 +112,7 @@ function loadFilters(){
  syncFilterControls();
 }
 function syncFilterControls(){
- $('#max-subs').value=String(filters.maxSubscribers);$('#content-filter').value=filters.content;
+ $('#max-subs').value=String(filters.maxSubscribers);$('#content-filter').value=filters.content;$('#audience-filter').value=filters.audience;
  $('#min-seconds').value=String(filters.minSeconds);$('#max-seconds').value=String(filters.maxSeconds);
  $('#min-views').value=String(filters.minViews);$('#balance').checked=filters.balance;$('#taste-assist').checked=filters.tasteAssist;
  $('#include-unknown-language').checked=filters.includeUnknownLanguage;
@@ -130,12 +130,30 @@ function updateFilterSummary(){
  const exploring=['discover','review'].includes(tab);$('#filter-panel').hidden=!exploring;
  if(!exploring)return;
  const base=baseVideosForTab(),n=C.filterCounts(base,state.records,filters),shown=base.filter(v=>C.matchesFilters(v,historyRecord(v),filters));
+ const audienceShown={surging:0,mega:0,proven:0,strong:0,watch:0,unknown:0};for(const v of shown){const s=C.audienceInfo(v).status;audienceShown[s]=(audienceShown[s]||0)+1;}
  const profile=C.buildTasteProfile(allVideos(),state.records);
  const priority=shown.filter(v=>C.candidateTier(v,historyRecord(v))==='priority').length;
  const review=shown.filter(v=>C.candidateTier(v,historyRecord(v))==='review').length;
  const prefCounts={close:0,adjacent:0,explore:0,low:0};for(const v of shown)prefCounts[C.preferenceClass(v,profile).bucket]++;
  const learned=profile.usableLikes+profile.usableDislikes;
- $('#filter-summary').textContent=`이 탭의 미검토 ${n.total}개 → 영화·드라마 게이트 ${n.content}개 → 언어 ${n.language}개 → 길이 ${n.duration}개 → 조회수 ${n.views}개. 표시 후보 중 영화·드라마 우선 ${priority}개 · 확인 필요 ${review}개. 취향 데이터 좋아요 ${profile.likedCount} / 별로 ${profile.dislikedCount} · 취향 학습 가능 ${learned}개 · 기존 이유 미분류 별로 ${profile.untypedDislikes||0}개. 현재 후보: 취향 가까움 ${prefCounts.close} · 인접한 새 결 ${prefCounts.adjacent} · 새로운 결 ${prefCounts.explore} · 낮은 적중 경로 ${prefCounts.low}. ${filters.tasteAssist?'좋아요·별로는 순서에만 반영하고 후보를 숨기지 않습니다. ':''}`;
+ $('#filter-summary').textContent=`이 탭의 미검토 ${n.total}개 → 영화·드라마 게이트 ${n.content}개 → 시청자 반응 ${n.audience}개 → 언어 ${n.language}개 → 길이 ${n.duration}개 → 조회수 ${n.views}개. 표시 후보 중 영화·드라마 우선 ${priority}개 · 확인 필요 ${review}개. 취향 데이터 좋아요 ${profile.likedCount} / 별로 ${profile.dislikedCount} · 취향 학습 가능 ${learned}개 · 기존 이유 미분류 별로 ${profile.untypedDislikes||0}개. 현재 후보: 급상승 ${audienceShown.surging||0} · 누적 1000만+ ${audienceShown.mega||0} · 누적 500만+ ${audienceShown.proven||0} · 구간 강반응 ${audienceShown.strong||0}. 취향: 가까움 ${prefCounts.close} · 인접 ${prefCounts.adjacent} · 새로운 결 ${prefCounts.explore} · 낮은 적중 경로 ${prefCounts.low}. ${filters.tasteAssist?'좋아요·별로는 순서에만 반영하고 후보를 숨기지 않습니다. ':''}`;
+}
+function audiencePanel(v){
+ const a=C.audienceInfo(v);if(sample(v))return '';
+ const badges=[];
+ if(a.surging)badges.push('<span class="audience-hot">🔥 지금 급상승</span>');
+ if(a.mega)badges.push('<span class="audience-mega">★★ 1000만+ 검증</span>');
+ else if(a.cumulativeProven)badges.push('<span class="audience-proven">★ 500만+ 검증</span>');
+ else if(a.fastStrong)badges.push('<span class="audience-strong">🚀 게시 구간 강반응</span>');
+ if(!badges.length)badges.push('<span class="audience-watch">관찰 중</span>');
+ const d=a.deltas||{},deltaText=[];
+ for(const [k,label] of [['h12','Δ약12h'],['h24','Δ약24h'],['d7','Δ약7d']]){
+   const x=d[k];if(x&&Number.isFinite(x.views))deltaText.push(`${label} +${short(x.views)} (${x.hours}h 관찰)`);
+ }
+ const age=a.ageHours===null?'게시 시점 미확인':a.ageHours<48?`게시 후 약 ${Math.round(a.ageHours)}시간`:`게시 후 약 ${Math.round(a.ageHours/24)}일`;
+ const floor=Number.isFinite(a.floorViews)?` · 해당 게시 구간 기준 ${short(a.floorViews)}+`:'';
+ const observed=deltaText.length?` · ${deltaText.join(' / ')}`:' · 실제 증가량은 다음 반복 수집부터 쌓입니다.';
+ return `<div class="audience-strip">${badges.join('')}<details><summary>시청자 반응 근거</summary><p>${esc(age)}${esc(floor)}${esc(observed)}<br>평생 평균 조회수로 나누지 않습니다. 누적 조회수와 실제 반복 관찰 증가량을 분리합니다.</p></details></div>`;
 }
 function priorityPanel(v,r){
  const tier=C.candidateTier(v,r),profile=C.buildTasteProfile(allVideos(),state.records),pref=C.preferenceClass(v,profile),gate=C.screenGateInfo(v,r);
@@ -176,13 +194,15 @@ function updateDiscoverySummary(){
  const cp=dataset.collectionPlan||{};const labels={english_focus:'영어 중심',english_only:'영어만',balanced:'다국어 균형',custom:'직접 비중'};
  const summaryData=dataset.collectionSummary||{},active=(cp.activeLanguages||[]).join(', ')||'미표시',dup=Number(summaryData.duplicateCandidatesSuppressed)||0;
  const ref=dataset.referenceSummary||{},api=dataset.apiUsage||{},cats=summaryData.sourceCategoryCounts||{},gates=summaryData.screenGateCounts||{};
+ const aud=summaryData.audienceCounts||{};
  const raw=Number(summaryData.rawAfterSafetyCap??summaryData.eligibleBeforeCap??dataset.videos.length)||0,kept=Number(summaryData.kept??dataset.videos.length)||0,reserve=Number(summaryData.reserveCount)||0;
  const pool=`원본 후보 ${raw}개 → 이번 검토 풀 ${kept}개${reserve?` · 예비 ${reserve}개`:''}`;
  const policy=summaryData.perChannelLimit?`한 채널 최대 ${summaryData.perChannelLimit}개 · 씨앗 출처 최대 ${summaryData.seedPoolPercent}% · 참고 출처 최대 ${summaryData.referencePoolPercent}%`:'';
  const mix=`검색 ${Number(cats.guided||0)+Number(cats.explore||0)} · 씨앗 ${Number(cats.seed||0)} · 참고 ${Number(cats.reference||0)} · 기타 ${Number(cats.configured||0)+Number(cats.other||0)}`;
  const gateSummary=`영화 주제 ${Number(gates.movie||0)} · TV 주제 ${Number(gates.tv||0)} · 메타데이터 보강 ${Number(gates.metadata||0)}`;
+ const audienceSummary=`급상승 ${Number(aud.surging||0)} · 1000만+ ${Number(aud.mega||0)} · 500만+ ${Number(aud.proven||0)} · 구간 강반응 ${Number(aud.strong||0)} · 관찰 ${Number(aud.watch||0)}`;
  const rejected=`비영화 강한 단서 ${Number(summaryData.rejectedNonScreen||0)}개 · 채널 업로드 중 영화/드라마 근거 부족 ${Number(summaryData.rejectedSourceWithoutScreenEvidence||0)}개 제외`;
- summary.innerHTML=`<summary>이번 수집 경로 보기 · ${esc(pool)}</summary><p><strong>검토 풀:</strong> ${esc(pool)}${policy?' · '+esc(policy):''}<br><strong>영화·드라마 게이트:</strong> ${esc(gateSummary)}<br><strong>출처 구성:</strong> ${esc(mix)}. 씨앗/참고 비중은 상한입니다.</p><p><strong>수집 언어:</strong> ${esc(labels[cp.preset]||'이전 방식')} · 이번 실행 언어 ${esc(active)} · ${esc(cp.retryRound||1)}차 탐색 · 최근 수집 ID ${esc(cp.excludedPreviousIds||0)}개 제외</p><p><strong>좋아요 반영:</strong> 씨앗 영상 ${esc(ref.seedResolved||0)}/${esc(ref.seedRequested||0)}개 확인 · 씨앗 채널 ${esc(ref.seedChannels||0)}개. 좋아요는 출처 힌트이며 채널 전체를 영화로 간주하지 않습니다.</p><ul>${lines}</ul><p>채널 업로드 ${scanned}건을 조회했고, ${esc(rejected)}했습니다. 정확한 영상 ID와 제목이 거의 같은 재업로드 후보 <strong>${esc(dup)}개</strong>도 중복 억제했습니다.</p><p><strong>API 사용:</strong> 이번 실행 search.list ${esc(api.searchListCalls??'—')}회 · 기타 조회 ${esc(api.otherCalls??'—')}회. 전체 일일 잔여량은 Google Cloud에서 확인해야 합니다.</p><p>1.8은 YouTube Movies/TV 주제에서 먼저 검색하고, 브라우저의 좋아요·별로 기록은 후보의 표시 순서에만 반영합니다.</p>`;
+ summary.innerHTML=`<summary>이번 수집 경로 보기 · ${esc(pool)}</summary><p><strong>검토 풀:</strong> ${esc(pool)}${policy?' · '+esc(policy):''}<br><strong>영화·드라마 게이트:</strong> ${esc(gateSummary)}<br><strong>시청자 반응:</strong> ${esc(audienceSummary)} · 실제 증가량 추적 ${esc(summaryData.trackedForMomentum||0)}개<br><strong>출처 구성:</strong> ${esc(mix)}. 씨앗/참고 비중은 상한입니다.</p><p><strong>수집 언어:</strong> ${esc(labels[cp.preset]||'이전 방식')} · 이번 실행 언어 ${esc(active)} · ${esc(cp.retryRound||1)}차 탐색 · 최근 수집 ID ${esc(cp.excludedPreviousIds||0)}개 제외</p><p><strong>좋아요 반영:</strong> 씨앗 영상 ${esc(ref.seedResolved||0)}/${esc(ref.seedRequested||0)}개 확인 · 씨앗 채널 ${esc(ref.seedChannels||0)}개. 좋아요는 출처 힌트이며 채널 전체를 영화로 간주하지 않습니다.</p><ul>${lines}</ul><p>채널 업로드 ${scanned}건을 조회했고, ${esc(rejected)}했습니다. 정확한 영상 ID와 제목이 거의 같은 재업로드 후보 <strong>${esc(dup)}개</strong>도 중복 억제했습니다.</p><p><strong>API 사용:</strong> 이번 실행 search.list ${esc(api.searchListCalls??'—')}회 · 기타 조회 ${esc(api.otherCalls??'—')}회. 전체 일일 잔여량은 Google Cloud에서 확인해야 합니다.</p><p>1.9는 영화/TV 주제 검색 뒤 시청자 반응을 먼저 확인합니다. 평생 평균 조회속도는 쓰지 않고 게시 구간 누적 조회수·누적 500만/1000만·실제 반복 관찰 delta를 분리합니다.</p>`;
 }
 function originPanel(v,r){
  if(sample(v))return '';
@@ -210,7 +230,7 @@ function renderCard(v){const r=historyRecord(v), ratio=C.ratio(v), duration=type
    if(media!=='unknown')sub.push('<button data-action="media_reset" title="내가 남긴 영화·드라마 여부 확인을 취소합니다.">종류 확인 취소</button>');
  }
  sub.push('<button data-action="memo" title="작품명·감동 포인트·편집 아이디어 등 내 메모를 남깁니다.">메모</button>');if(r.rating==='dislike')sub.push('<button data-action="dislike_reason" title="별로 이유를 지정하거나 바꿉니다. 기존 별로는 이유를 지정하기 전까지 취향 반대 신호로 쓰지 않습니다.">별로 이유</button>');if(r.rating)sub.push('<button data-action="unrate" title="좋아요 또는 별로 기록만 취소합니다. 원작·쇼츠 확인은 유지됩니다.">평가 취소</button>');if(r.stage!=='done')sub.push('<button data-action="done" title="이미 제작한 소재로 표시해 다시 제작 후보로 고르는 일을 줄입니다.">이미 제작함</button>');
- return `<article class="card${r.rating==='like'?' is-liked':''}${r.rating==='dislike'?' is-disliked':''}" data-id="${esc(v.id)}"><div class="thumb ${v.thumbnail?'':'empty'}">${thumb}</div><div class="body"><div class="meta"><span>${esc(v.channelTitle||'채널 미확인')}${labels?' · '+esc(labels):''}</span><span>${esc(duration)}</span></div><h4>${esc(v.title||'저장된 YouTube 링크')}</h4><div class="stats"><div><span>조회수</span><strong title="${esc(fmt(v.views))}">${short(v.views)}</strong></div><div><span>공개 구독자 수</span><strong title="${esc(fmt(v.subscribers))}">${short(v.subscribers)}</strong></div><div><span>조회 ÷ 구독</span><strong title="현재 조회수 ÷ 공개 구독자 수. 공개 구독자 수의 내림·미확인의 영향이 있으며 성공 점수가 아닙니다.">${ratio===null?'—':'약 '+ratio.toLocaleString('ko-KR',{maximumFractionDigits:1})+'배'}</strong></div></div><p class="reason">${sample(v)?'기능 확인용 가상 데이터입니다.':esc(v.source||'YouTube 공개 API 데이터')}<br>게시 ${dt(v.publishedAt)} · 수집 ${dt(v.fetchedAt)}</p>${priorityPanel(v,r)}${discoveryPanel(v,r)}${evidencePanel(v,r)}${originPanel(v,r)}${r.label?`<div class="mynote"><strong>내 제목</strong> ${esc(r.label)}</div>`:''}${r.memo?`<div class="mynote">${esc(r.memo)}</div>`:''}<div class="buttons">${buttons}</div><div class="subbuttons">${sub.join('')}</div></div></article>`;
+ return `<article class="card${r.rating==='like'?' is-liked':''}${r.rating==='dislike'?' is-disliked':''}" data-id="${esc(v.id)}"><div class="thumb ${v.thumbnail?'':'empty'}">${thumb}</div><div class="body"><div class="meta"><span>${esc(v.channelTitle||'채널 미확인')}${labels?' · '+esc(labels):''}</span><span>${esc(duration)}</span></div><h4>${esc(v.title||'저장된 YouTube 링크')}</h4><div class="stats"><div><span>조회수</span><strong title="${esc(fmt(v.views))}">${short(v.views)}</strong></div><div><span>공개 구독자 수</span><strong title="${esc(fmt(v.subscribers))}">${short(v.subscribers)}</strong></div><div><span>조회 ÷ 구독</span><strong title="현재 조회수 ÷ 공개 구독자 수. 공개 구독자 수의 내림·미확인의 영향이 있으며 성공 점수가 아닙니다.">${ratio===null?'—':'약 '+ratio.toLocaleString('ko-KR',{maximumFractionDigits:1})+'배'}</strong></div></div><p class="reason">${sample(v)?'기능 확인용 가상 데이터입니다.':esc(v.source||'YouTube 공개 API 데이터')}<br>게시 ${dt(v.publishedAt)} · 수집 ${dt(v.fetchedAt)}</p>${audiencePanel(v)}${priorityPanel(v,r)}${discoveryPanel(v,r)}${evidencePanel(v,r)}${originPanel(v,r)}${r.label?`<div class="mynote"><strong>내 제목</strong> ${esc(r.label)}</div>`:''}${r.memo?`<div class="mynote">${esc(r.memo)}</div>`:''}<div class="buttons">${buttons}</div><div class="subbuttons">${sub.join('')}</div></div></article>`;
 }
 function render(){
  const active=visibleRecords().map(([id,r])=>({id,...r}));
@@ -251,8 +271,8 @@ function applyDeployment(data){
  dataset=data;
  const stale=data.mode==='live'&&(!Number.isFinite(Date.parse(data.generatedAt))||Date.now()-Date.parse(data.generatedAt)>C.MAX_AGE);
  if(stale){dataset={...data,videos:[]};warn('수집 정보가 29일을 넘겨 표시하지 않습니다. GitHub Actions에서 live로 다시 수집해 주세요.');}
- else{$('#notice').classList.remove('error');$('#notice').textContent=data.mode==='demo'?'샘플 모드입니다. 제목·조회수는 기능 확인용 가상 데이터이며 실제 영상이 아닙니다. API 키를 등록하고 live로 실행하면 실제 목록으로 바뀝니다.':(data.warnings||[]).length?'수집 안내: '+data.warnings.join(' / '):'1.8.2 · 별로 이유를 분리해 기존 별로를 무조건 취향 반대 신호로 학습하지 않습니다.';}
- if(data.mode==='live'&&data.collectorVersion!=='1.8')warn('앱은 1.8.2이지만 수집 데이터는 이전 버전입니다. Actions에서 새 main / live 실행이 필요합니다.');
+ else{$('#notice').classList.remove('error');$('#notice').textContent=data.mode==='demo'?'샘플 모드입니다. 제목·조회수는 기능 확인용 가상 데이터이며 실제 영상이 아닙니다. API 키를 등록하고 live로 실행하면 실제 목록으로 바뀝니다.':(data.warnings||[]).length?'수집 안내: '+data.warnings.join(' / '):'1.9 · 시청자 반응 검증을 추가했습니다. 평생 평균 조회속도 대신 게시 구간 기준과 실제 반복 관찰 증가량을 사용합니다.';}
+ if(data.mode==='live'&&data.collectorVersion!=='1.9')warn('앱은 1.9이지만 수집 데이터는 이전 버전입니다. Actions에서 새 main / live 실행이 필요합니다.');
  for(const v of dataset.videos){if(state.records[v.id]&&v.fetchedAt)state.records[v.id].cache=v;}
  state=C.normalize(state);persist();$('#mode').textContent=data.mode==='live'?'YouTube 연결':'SAMPLE';$('#mode').classList.toggle('live',data.mode==='live');
  const round=data.collectionPlan?.retryRound||'—';
@@ -290,6 +310,7 @@ $('#shorts-filter').onchange=()=>{filters.shorts=$('#shorts-filter').value;saveF
 $('#mix-discovery').onchange=()=>{filters.mixDiscovery=$('#mix-discovery').checked;saveFilters();};
 $('#max-subs').onchange=()=>{filters.maxSubscribers=Number($('#max-subs').value);saveFilters();};
 $('#content-filter').onchange=()=>{filters.content=$('#content-filter').value;saveFilters();};
+$('#audience-filter').onchange=()=>{filters.audience=$('#audience-filter').value;saveFilters();};
 $('#min-views').onchange=()=>{filters.minViews=Number($('#min-views').value);saveFilters();};
 $('#duration-preset').onchange=()=>{const v=$('#duration-preset').value;if(v==='custom'){$('#min-seconds').focus();return;}[filters.minSeconds,filters.maxSeconds]=v.split(':').map(Number);saveFilters();};
 for(const id of ['#min-seconds','#max-seconds'])$(id).onchange=()=>{
@@ -310,7 +331,7 @@ $('#open-actions').onclick=()=>{const u=repoActionsUrl();if(u)window.open(u,'_bl
 $('#copy-seeds').onclick=copySeedIds;
 $('#find-more').onclick=async()=>{const current=Number(dataset.collectionPlan?.retryRound)||collectionPrefs.retryRound||1;collectionPrefs.retryRound=Math.min(3,current+1);saveCollectionPrefs();const u=repoActionsUrl();if(u)window.open(u,'_blank','noopener');await copyCollectionInstruction();};
 $('#no-harvest').onclick=()=>{if(dataset.mode!=='live'||!dataset.generatedAt){toast('실제 수집 목록에서만 수확 없음 기록을 남길 수 있습니다.');return;}const current=Number(dataset.collectionPlan?.retryRound)||collectionPrefs.retryRound||1;state=C.recordBatchFeedback(state,dataset.generatedAt,'no_harvest',current);persist();collectionPrefs.retryRound=Math.min(3,current+1);saveCollectionPrefs();toast(`이번 수집을 ‘수확 없음’으로 기록했습니다. 다음은 ${collectionPrefs.retryRound}차 재탐색을 추천합니다.`);};
-$('#reset-filters').onclick=()=>{filters=C.defaultFilters();saveFilters();toast('1.8 추천 기준으로 돌아왔습니다. 구독자 제한 없이 영화·드라마 게이트 후보 중 조회수 10만 이상을 우선 봅니다.');};
+$('#reset-filters').onclick=()=>{filters=C.defaultFilters();saveFilters();toast('1.9 추천 기준으로 돌아왔습니다. 구독자 제한 없이 영화·드라마 게이트와 시청자 반응 검증을 함께 적용합니다.');};
 $('#broad-filters').onclick=()=>{filters=C.broadFilters();saveFilters();toast('전체 후보 보기로 전환했습니다. 수집된 후보를 진단할 때 쓰며, 다음 수집 설정은 바뀌지 않습니다.');};
 function start(){loadState();loadFilters();loadCollectionPrefs();render();refresh(false);void updateBackupLocation();}
 $('#consent').onclick=()=>{try{localStorage.setItem(consentKey,'yes');}catch{}$('#consent-dialog').close();start();};
