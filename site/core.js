@@ -133,14 +133,15 @@
     return {code,source,basis,badge,audio,declared};
   }
   const preferredLanguages=()=>['en','ja','es','pt','fr','de','it','zh'];
-  const defaultFilters=()=>({schema:1,maxSubscribers:0,minSeconds:0,maxSeconds:180,minViews:100000,content:'screen_gate',languages:preferredLanguages(),includeUnknownLanguage:true,balance:true,route:'all',mixDiscovery:true,shorts:'any',tasteAssist:true});
-  const broadFilters=()=>({schema:1,maxSubscribers:0,minSeconds:0,maxSeconds:180,minViews:0,content:'all',languages:Object.keys(LANGUAGE_LABELS).filter(x=>x!=='unknown'),includeUnknownLanguage:true,balance:true,route:'all',mixDiscovery:true,shorts:'any',tasteAssist:true});
+  const defaultFilters=()=>({schema:1,maxSubscribers:0,minSeconds:0,maxSeconds:180,minViews:0,content:'screen_gate',audience:'validated',languages:preferredLanguages(),includeUnknownLanguage:true,balance:true,route:'all',mixDiscovery:true,shorts:'any',tasteAssist:true});
+  const broadFilters=()=>({schema:1,maxSubscribers:0,minSeconds:0,maxSeconds:180,minViews:0,content:'all',audience:'all',languages:Object.keys(LANGUAGE_LABELS).filter(x=>x!=='unknown'),includeUnknownLanguage:true,balance:true,route:'all',mixDiscovery:true,shorts:'any',tasteAssist:true});
   function normalizeFilters(raw={}) {
     const f=defaultFilters(), numberKeys={maxSubscribers:[0,1000000000],minSeconds:[0,180],maxSeconds:[0,180],minViews:[0,100000000000]};
     for(const [k,[lo,hi]] of Object.entries(numberKeys)) if(Number.isInteger(raw[k])&&raw[k]>=lo&&raw[k]<=hi)f[k]=raw[k];
     // Empty/invalid UI inputs never make NaN comparisons silently accept data.
     if(f.minSeconds>f.maxSeconds){f.minSeconds=0;f.maxSeconds=180;}
     if(['screen_gate','review','screen','film','all'].includes(raw.content))f.content=raw.content==='review'?'screen_gate':raw.content;
+    if(['validated','surging','proven','all'].includes(raw.audience))f.audience=raw.audience;
     if(Array.isArray(raw.languages))f.languages=[...new Set(raw.languages.filter(x=>typeof x==='string'&&x!=='unknown'&&Object.hasOwn(LANGUAGE_LABELS,x)))];
     if(raw.route==='all'||Object.hasOwn(ROUTE_LABELS,raw.route))f.route=raw.route;
     if(['any','hinted','confirmed'].includes(raw.shorts))f.shorts=raw.shorts;
@@ -163,6 +164,28 @@
     if(gates.includes('direct'))return {ok:true,label:'직접 지정 후보',topics:[]};
     return {ok:false,label:'영화·드라마 게이트 미확인',topics:[]};
   }
+  function audienceInfo(v={}) {
+    const a=v&&typeof v.audience==='object'&&v.audience?v.audience:{};
+    const status=['surging','mega','proven','strong','watch'].includes(a.status)?a.status:'unknown';
+    const views=Number.isFinite(v.views)?v.views:0;
+    const fallbackProven=views>=5000000;
+    return {
+      status:status==='unknown'&&fallbackProven?'proven':status,
+      validated:typeof a.validated==='boolean'?a.validated:fallbackProven,
+      surging:Boolean(a.surging),
+      fastStrong:Boolean(a.fastStrong),
+      cumulativeProven:typeof a.cumulativeProven==='boolean'?a.cumulativeProven:fallbackProven,
+      mega:typeof a.mega==='boolean'?a.mega:views>=10000000,
+      ageHours:Number.isFinite(a.ageHours)?a.ageHours:null,
+      floorViews:Number.isFinite(a.floorViews)?a.floorViews:null,
+      deltas:a.deltas&&typeof a.deltas==='object'?a.deltas:{},
+      lifetimeAverageUsed:false
+    };
+  }
+  function audienceRank(v={}) {
+    const s=audienceInfo(v).status;
+    return ({surging:0,mega:1,proven:2,strong:3,watch:4,unknown:5})[s]??5;
+  }
   function filterReasons(v,r,f) {
     if(isSample(v))return []; // fictitious demo items are explicitly exempt from source checks
     const reasons=[],kind=screenKind(v,r),format=shortsInfo(v,r).status;
@@ -171,6 +194,10 @@
     if(f.content==='screen_gate'&&(kind==='non_screen'||!screenGateInfo(v,r).ok))reasons.push('content');
     if(f.content==='screen'&&!['film','series','user_screen'].includes(kind))reasons.push('content');
     if(f.content==='film'&&kind!=='film')reasons.push('content');
+    const audience=audienceInfo(v);
+    if(f.audience==='validated'&&!audience.validated)reasons.push('audience');
+    if(f.audience==='surging'&&!audience.surging)reasons.push('audience');
+    if(f.audience==='proven'&&!audience.cumulativeProven)reasons.push('audience');
     if(f.maxSubscribers>0&&!(Number.isFinite(v.subscribers)&&v.subscribers>=0&&v.subscribers<=f.maxSubscribers))reasons.push('subscribers');
     const lang=languageInfo(v).code;
     if(lang==='unknown'?!f.includeUnknownLanguage:!f.languages.includes(lang))reasons.push('language');
@@ -181,7 +208,7 @@
   function matchesFilters(v,r,f) { return filterReasons(v,r,f).length===0; }
   function filterCounts(items,records,f) {
     const result={total:items.length};let remaining=items;
-    for(const reason of ['content','subscribers','language','duration','views','route','format']){
+    for(const reason of ['content','audience','subscribers','language','duration','views','route','format']){
       remaining=remaining.filter(v=>!filterReasons(v,records[v.id]||{},f).includes(reason));result[reason]=remaining.length;
     }
     return result;
@@ -319,5 +346,5 @@
     return roundRobin([...groups.values()].map(g=>balanceLanguage?balanceVideos(g,languageOrder):g));
   }
 
-  return {formatOf, shortsInfo, routesOf, themesOf, ROUTE_LABELS, mixRoutes, recordBatchFeedback, buildTasteProfile, preferenceClass, personalizedBlend, tasteMatch, candidateTier, candidatePriorityGroup, screenGateInfo, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, broadFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
+  return {formatOf, shortsInfo, routesOf, themesOf, ROUTE_LABELS, mixRoutes, recordBatchFeedback, buildTasteProfile, preferenceClass, personalizedBlend, tasteMatch, candidateTier, candidatePriorityGroup, screenGateInfo, audienceInfo, audienceRank, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, broadFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
 });
