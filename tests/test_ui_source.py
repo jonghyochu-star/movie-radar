@@ -20,9 +20,9 @@ class UiSourceTests(unittest.TestCase):
             self.assertNotEqual(pos,-1,control)
             snippet=html[max(0,pos-160):pos+500]
             self.assertIn('title=',snippet,control)
-    def test_version_is_182(self):
+    def test_version_is_19(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-        self.assertIn('version">1.8.2<',html)
+        self.assertIn('version">1.9<',html)
 
 
     def test_broad_candidate_button_exists(self):
@@ -117,3 +117,18 @@ def _v182_dislike_reasons(self):
     self.assertIn("untypedDislikes",core)
     self.assertIn("별로 이유",app)
 UiSourceTests.test_v182_dislike_reasons=_v182_dislike_reasons
+
+
+def _v19_audience_layer(self):
+    html=(ROOT/'site/index.html').read_text(encoding='utf-8')
+    app=(ROOT/'site/app.js').read_text(encoding='utf-8')
+    core=(ROOT/'site/core.js').read_text(encoding='utf-8')
+    collect=(ROOT/'scripts/collect.py').read_text(encoding='utf-8')
+    for token in ['id="audience-filter"','강한 반응·검증 영상만','누적 500만+만']:
+        self.assertIn(token,html)
+    for token in ['audiencePanel','trackedForMomentum','시청자 반응']:
+        self.assertIn(token,app)
+    self.assertIn("audienceInfo",core)
+    self.assertIn("audience_metrics",collect)
+    self.assertIn("load_view_tracking",collect)
+UiSourceTests.test_v19_audience_layer=_v19_audience_layer
