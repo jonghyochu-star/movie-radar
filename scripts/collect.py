@@ -25,6 +25,7 @@ if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 from screen_rules import infer_language, screen_evidence
 from discovery import validate_discovery, select_profiles, shorts_hint, diverse_snapshot, select_review_pool, source_category, LABELS, parse_collection_plan, SCREEN_TOPIC_IDS, SCREEN_TOPIC_LABELS
+from audience import audience_metrics, audience_rank, normalize_tracking, add_observation, prune_tracking, TRACK_LIMIT, TRACK_DAYS
 
 CHANNEL = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
 
@@ -232,10 +233,19 @@ def load_cache_history(path, id_limit=RECENT_HISTORY_LIMIT, fp_limit=RECENT_FING
     except (OSError,ValueError,TypeError):
         return set(),[]
 
-def save_cache_history(path, ids, fingerprints, id_limit=RECENT_HISTORY_LIMIT, fp_limit=RECENT_FINGERPRINT_LIMIT):
+def load_view_tracking(path):
+    if not path:return {}
+    try:
+        raw=json.loads(Path(path).read_text(encoding='utf-8'))
+        return normalize_tracking(raw.get('viewTracking',{}))
+    except (OSError,ValueError,TypeError):
+        return {}
+
+def save_cache_history(path, ids, fingerprints, view_tracking=None, id_limit=RECENT_HISTORY_LIMIT, fp_limit=RECENT_FINGERPRINT_LIMIT):
     if not path:return
     target=Path(path);target.parent.mkdir(parents=True,exist_ok=True)
-    payload={'schema':2,'ids':ordered_video_ids(ids,id_limit),'fingerprints':list(fingerprints)[-fp_limit:]}
+    payload={'schema':3,'ids':ordered_video_ids(ids,id_limit),'fingerprints':list(fingerprints)[-fp_limit:],
+             'viewTracking':prune_tracking(view_tracking or {},datetime.now(timezone.utc),TRACK_LIMIT,TRACK_DAYS)}
     tmp=target.with_suffix('.tmp');tmp.write_text(json.dumps(payload,separators=(',',':')),encoding='utf-8');tmp.replace(target)
 
 def prior_pages_url(repository):
@@ -285,11 +295,14 @@ def parse_seed_video_ids(value, limit=8):
     if len(out)>limit:raise CollectionError(f'좋아요 씨앗 영상은 최대 {limit}개까지 사용할 수 있습니다.')
     return out
 
-def collect(api, c, rotation=0, now=None, collection_preset='english_focus', custom_weights='', retry_round=1, excluded_ids=None, excluded_fingerprints=None, trigger='manual', seed_video_ids=None):
+def collect(api, c, rotation=0, now=None, collection_preset='english_focus', custom_weights='', retry_round=1, excluded_ids=None, excluded_fingerprints=None, trigger='manual', seed_video_ids=None, view_tracking=None):
     now = now or datetime.now(timezone.utc)
     stamp = timestamp(now)
     found, routes, source_kinds, topic_gates, discovery_labels = {}, {}, {}, {}, {}
     warnings = []
+    tracking=normalize_tracking(view_tracking or {})
+    tracked_raw={}
+    tracked_promotions=set()
     excluded_order=ordered_video_ids(excluded_ids or [],RECENT_HISTORY_LIMIT)
     excluded_ids=set(excluded_order)
     excluded_fingerprints=list(excluded_fingerprints or [])[-RECENT_FINGERPRINT_LIMIT:]
@@ -309,6 +322,28 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
             if source_kind not in source_kinds[vid]:source_kinds[vid].append(source_kind)
             if isinstance(discovery_label,str) and discovery_label.strip() and discovery_label.strip() not in discovery_labels[vid]:discovery_labels[vid].append(discovery_label.strip()[:80])
             if screen_topic in SCREEN_TOPIC_IDS and screen_topic not in topic_gates[vid]:topic_gates[vid].append(screen_topic)
+
+    # Re-check recent tracked candidates with cheap videos.list calls.
+    # We never divide lifetime views by total age. A tracked video can be promoted once
+    # if its current views / observed deltas later satisfy the audience-response gate.
+    track_ids=[vid for vid,row in tracking.items() if not row.get('promotedAt')][:TRACK_LIMIT]
+    if track_ids:
+        for batch in chunks(track_ids):
+            for v in api.get('videos',part='snippet,statistics,contentDetails,status,topicDetails',id=','.join(batch)).get('items',[]):
+                vid=v.get('id','');st=v.get('statistics',{});s=v.get('snippet',{})
+                views=number(st.get('viewCount'))
+                if not ID.fullmatch(vid) or views is None:continue
+                tracked_raw[vid]=v
+                row=tracking.get(vid,{})
+                metrics=audience_metrics(s.get('publishedAt') or row.get('publishedAt'),views,row.get('snapshots',[]),now)
+                if metrics.get('validated'):
+                    found.setdefault(vid,['이전 후보 추적 중 시청자 반응 기준 통과'])
+                    routes.setdefault(vid,list(row.get('discoveryRoutes') or ['open']))
+                    source_kinds.setdefault(vid,list(row.get('sourceKinds') or ['tracked']))
+                    topic_gates.setdefault(vid,list(row.get('screenGate') or []))
+                    discovery_labels.setdefault(vid,list(row.get('discoveryLabels') or []))
+                    tracked_promotions.add(vid)
+
     selected=select_profiles(c,rotation,collection_preset,custom_weights,retry_round)
     query_names=[entry['q'] for entry in selected]
     languages=list(dict.fromkeys(entry['language'] for entry in selected if entry['language']))
@@ -396,7 +431,7 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
                                  'scannedUploads':scanned,'referenceSource':cid in reference_channels,
                                  'likedSeedSource':cid in seed_channels})
     for vid in c['video_ids']:add(vid,'설정 파일에서 지정한 영상','direct','direct')
-    base={'schema':1,'mode':'live','generatedAt':stamp,'collectorVersion':'1.8',
+    base={'schema':1,'mode':'live','generatedAt':stamp,'collectorVersion':'1.9',
           'reviewPolicy':'manual-original-country-v1','warnings':warnings,
           'searchQueries':query_names,'searchLanguages':languages,
           'collectionPlan':{'preset':collection_plan['preset'],'weights':collection_plan['weights'],
@@ -410,9 +445,10 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
           'shortsPolicy':'publisher-hint-or-user-confirmation-only'}
     if not found:
         base['warnings'].append('검색 결과가 없습니다. 참고 출처와 검색어·기간을 확인하세요.')
-        return {**base,'collectorHistoryIds':excluded_order,'collectorRecentFingerprints':[],'videos':[]}
-    raw_videos=[]
-    for batch in chunks(found):
+        return {**base,'collectorHistoryIds':excluded_order,'collectorRecentFingerprints':[],'_trackingState':tracking,'videos':[]}
+    raw_videos=[v for vid,v in tracked_raw.items() if vid in found]
+    fetch_ids=[vid for vid in found if vid not in tracked_raw]
+    for batch in chunks(fetch_ids):
         raw_videos.extend(api.get('videos',part='snippet,statistics,contentDetails,status,topicDetails',id=','.join(batch)).get('items',[]))
     eligible=[];seen=set()
     for v in raw_videos:
@@ -463,13 +499,27 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
                        'declaredLanguage':lang['declared'],'languageSource':lang['source'],
                        'titleLanguage':lang['titleCode'],'titleLanguageBasis':lang['titleBasis'],
                        'screenKind':evidence['kind'],'screenReason':evidence['reason'],
-                       'metadataVersion':'1.8','id':vid,'title':s.get('title',''),'channelTitle':s.get('channelTitle',''),'channelId':cid,
+                       'metadataVersion':'1.9','id':vid,'title':s.get('title',''),'channelTitle':s.get('channelTitle',''),'channelId':cid,
                        'views':number(st.get('viewCount')),'subscribers':subscribers.get(cid),
                        'publishedAt':s.get('publishedAt'),'fetchedAt':stamp,'durationSeconds':seconds,
+                       'audience':audience_metrics(s.get('publishedAt'),number(st.get('viewCount')),tracking.get(vid,{}).get('snapshots',[]),now),
                        'thumbnail':thumb,'originalStatus':'unverified','source':' / '.join(found.get(vid,[])[:2]),
                        'discoveryRoutes':routes.get(vid,[]),'discoveryLabels':discovery_labels.get(vid,[]),'sourceKinds':source_kinds.get(vid,[]),'screenGate':screen_gate,
                        'shortsHint':shorts_hint(s)})
     eligible_count=len(result)
+    prepool=list(result)
+    # Persist observation snapshots for recent candidates. The cache is private to Actions.
+    # These observations enable real delta12h/delta24h/delta7d later without pretending
+    # that lifetime views were evenly distributed across the video's age.
+    tracking_candidates=sorted(prepool,key=lambda v:(audience_rank(v),-(v.get('views') or 0)))[:TRACK_LIMIT]
+    for v in tracking_candidates:
+        add_observation(tracking,v['id'],v.get('publishedAt'),v.get('views'),now,{
+            'screenGate':v.get('screenGate',[]),'discoveryRoutes':v.get('discoveryRoutes',[]),
+            'discoveryLabels':v.get('discoveryLabels',[]),'sourceKinds':v.get('sourceKinds',[])})
+    # Also keep weak tracked videos observed this run so they can cross the gate later.
+    for vid,v in tracked_raw.items():
+        st=v.get('statistics',{});s=v.get('snippet',{});views=number(st.get('viewCount'))
+        if views is not None:add_observation(tracking,vid,s.get('publishedAt'),views,now,tracking.get(vid,{}))
     result=diverse_snapshot(result,c['max_videos'])
     raw_after_cap=len(result)
     if plan:
@@ -479,6 +529,14 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
         review_limit=c['max_videos']
     if not result:warnings.append('길이·공개 조건에 맞는 후보가 없습니다.')
     base['warnings']=warnings
+    # Mark only actually surfaced validated candidates as promoted. Weak candidates stay tracked
+    # and may be surfaced once later if real audience response strengthens.
+    for v in result:
+        if v.get('audience',{}).get('validated') and v.get('id') in tracking:
+            tracking[v['id']]['promotedAt']=tracking[v['id']].get('promotedAt') or stamp
+    for vid in tracked_promotions:
+        if vid in tracking:tracking[vid]['promotedAt']=tracking[vid].get('promotedAt') or stamp
+    tracking=prune_tracking(tracking,now,TRACK_LIMIT,TRACK_DAYS)
     category_counts={k:sum(source_category(v)==k for v in result) for k in ['guided','explore','seed','reference','configured','other']}
     channel_counts={}
     for v in result:
@@ -492,9 +550,13 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
         'rejectedNonScreen':rejected_non_screen,'rejectedSourceWithoutScreenEvidence':rejected_source_without_screen,
         'rejectedWithoutScreenGate':rejected_without_gate,
         'routeCounts':{lane:sum(lane in v['discoveryRoutes'] for v in result) for lane in LABELS},
-        'note':'1.7은 Movies/TV 주제에서 먼저 검색하고, 참고·씨앗 채널 단독 후보는 영화·드라마 메타데이터 근거가 있을 때만 검토 풀에 넣습니다. 구독자 수는 선별 우선순위에 사용하지 않습니다.'}
+        'audienceCounts':{key:sum(v.get('audience',{}).get('status')==key for v in result) for key in ['surging','mega','proven','strong','watch']},
+        'audienceValidated':sum(bool(v.get('audience',{}).get('validated')) for v in result),
+        'trackedForMomentum':len(tracking),
+        'note':'1.9은 구독자 수나 평생 평균 조회속도를 쓰지 않고, 게시 후 구간별 누적 조회수 기준·누적 500만 검증·실제 반복 관찰 delta를 분리해 시청자 반응을 표시합니다.'}
     history=ordered_video_ids([*excluded_order,*[v['id'] for v in result]],RECENT_HISTORY_LIMIT)
-    return {**base,'collectorHistoryIds':history,'collectorRecentFingerprints':accepted_fingerprints[-800:],'videos':result}
+    return {**base,'collectorHistoryIds':history,'collectorRecentFingerprints':accepted_fingerprints[-800:],
+            '_trackingState':tracking,'videos':result}
 
 def main():
     parser=argparse.ArgumentParser()
@@ -518,26 +580,29 @@ def main():
         page_ids,page_fps,prior_warning=load_prior_history(os.environ.get('GITHUB_REPOSITORY',''))
         cache_path=os.environ.get('COLLECT_HISTORY_PATH','').strip()
         cache_ids,cache_fps=load_cache_history(cache_path)
+        view_tracking=load_view_tracking(cache_path)
         prior_order=ordered_video_ids([*cache_ids,*page_ids],RECENT_HISTORY_LIMIT)
         prior=set(prior_order)
         fingerprints=[*cache_fps,*page_fps][-RECENT_FINGERPRINT_LIMIT:]
         trigger=os.environ.get('COLLECTION_TRIGGER','manual')
         data=collect(api,c,rotation,collection_preset=args.collect_preset,custom_weights=args.custom_weights,
                      retry_round=args.retry_round,excluded_ids=prior_order,excluded_fingerprints=fingerprints,trigger=trigger,
-                     seed_video_ids=args.seed_video_ids)
+                     seed_video_ids=args.seed_video_ids,view_tracking=view_tracking)
         data['apiUsage']={'searchListCalls':api.calls.get('search',0),
                           'otherCalls':sum(v for k,v in api.calls.items() if k!='search'),
                           'byEndpoint':dict(api.calls),
                           'note':'이번 실행에서 Movie Radar가 사용한 호출 수입니다. 프로젝트의 오늘 남은 전체 할당량은 Google Cloud에서 확인하세요.'}
         if prior_warning:data.setdefault('warnings',[]).append(prior_warning)
         merged_fps=[*fingerprints,*data.get('collectorRecentFingerprints',[])]
-        save_cache_history(cache_path,data.get('collectorHistoryIds',[]),merged_fps)
+        tracking_state=data.pop('_trackingState',view_tracking)
+        save_cache_history(cache_path,data.get('collectorHistoryIds',[]),merged_fps,tracking_state)
         print(f"LIVE: {len(data['videos'])}개 수집. API 요청 횟수: {json.dumps(api.calls)}")
         print("수집 경로: " + ", ".join(p["lane"] for p in data.get("discoveryPlan",[])))
         print("참고·좋아요 출처 채널: " + str(len(data.get("referenceSummary",{}).get("channels",[]))) +
               " / 좋아요 씨앗 채널 " + str(data.get('referenceSummary',{}).get('seedChannels',0)))
         print("검색 언어: " + ", ".join(data.get("searchLanguages", [])))
         print("영화/TV 게이트: " + json.dumps(data.get('collectionSummary',{}).get('screenGateCounts',{}),ensure_ascii=False))
+        print("시청자 반응: " + json.dumps(data.get('collectionSummary',{}).get('audienceCounts',{}),ensure_ascii=False) + " / 검증 통과 " + str(data.get('collectionSummary',{}).get('audienceValidated',0)) + "개")
         print("이번 실행 API 호출: " + json.dumps(data.get('apiUsage',{}).get('byEndpoint',{}),ensure_ascii=False))
         print("수집 언어 계획: " + json.dumps(data.get("collectionPlan",{}),ensure_ascii=False))
         print("중복 억제: " + str(data.get('collectionSummary',{}).get('duplicateCandidatesSuppressed',0)) + "개 / 캐시·이전 배포 ID 제외 " + str(data.get('collectionPlan',{}).get('excludedPreviousIds',0)) + "개")
