@@ -13,8 +13,8 @@ test('merge newer wins',()=>{let a=C.apply(C.blank(),v,'like','2026-09-01T00:00:
 test('YouTube links parsed',()=>{assert.equal(C.parseLink('https://youtu.be/AbCdEfGhI01?t=1'),v.id);assert.equal(C.parseLink('https://www.youtube.com/shorts/AbCdEfGhI01'),v.id);assert.equal(C.parseLink('https://www.youtube.com/watch?v=AbCdEfGhI01'),v.id);});
 test('unsafe links rejected',()=>{for(const x of ['javascript:alert(1)','https://youtube.com.evil.com/watch?v=AbCdEfGhI01','http://youtu.be/AbCdEfGhI01'])assert.throws(()=>C.parseLink(x));});
 
-test('unknown metadata never determines origin',()=>{assert.equal(C.originOf({}), 'unknown');assert.equal(C.ready({...v,title:'Korean film',country:'US'},{}),false);});
-test('unknown cannot enter production candidates',()=>{assert.throws(()=>C.apply(C.blank(),v,'candidate'),/원작/);});
+test('unknown metadata never determines origin but no longer blocks evaluation',()=>{assert.equal(C.originOf({}), 'unknown');assert.equal(C.ready({...v,title:'Korean film',country:'US'},{}),true);});
+test('candidate can be chosen immediately and implies tone match',()=>{const s=C.apply(C.blank(),v,'candidate');assert.equal(s.records[v.id].stage,'candidate');assert.equal(s.records[v.id].rating,'like');});
 test('legacy record migration preserves rating, stage, memo',()=>{const old={schema:1,records:{[v.id]:{id:v.id,rating:'like',stage:'candidate',memo:'keep me'}}};const r=C.normalize(old).records[v.id];assert.equal(r.rating,'like');assert.equal(r.stage,'candidate');assert.equal(r.memo,'keep me');assert.equal(r.origin,'unknown');});
 test('Korean exclusion preserves preference and notes',()=>{let s=C.apply(C.apply(C.apply(C.blank(),v,'origin_foreign'),v,'like'),v,'candidate');s.records[v.id].memo='unchanged';s=C.apply(s,v,'origin_korean');const r=s.records[v.id];assert.equal(r.rating,'like');assert.equal(r.stage,'candidate');assert.equal(r.memo,'unchanged');assert.equal(C.originOf(r),'korean');assert.equal(C.ready(v,r),false);assert.equal(C.needsReview(v,r),false);});
 test('origin reset sends item to unknown review',()=>{let s=C.apply(C.blank(),v,'origin_foreign');s=C.apply(s,v,'origin_reset');assert.equal(C.needsReview(v,s.records[v.id]),true);});
@@ -46,7 +46,7 @@ test('show all content allows manual review',()=>assert(C.matchesFilters({...fvi
 test('manual movie confirmation overrides weak metadata',()=>assert(C.matchesFilters({...fvideo,screenKind:'unknown'},{media:'screen'},defaults())));
 test('manual nonfilm mark is separate from taste and origin',()=>{let s=C.apply(C.apply(C.blank(),v,'origin_foreign'),v,'like');s.records[v.id].memo='keep';s=C.apply(s,v,'media_no');const r=s.records[v.id];assert.equal(r.rating,'like');assert.equal(r.memo,'keep');assert.equal(r.origin,'non_korean');assert(!C.ready(v,r));assert(!C.needsReview(v,r));assert.throws(()=>C.apply(s,v,'candidate'));});
 test('manual nonfilm reset restores eligibility without taste mutation',()=>{let s=C.apply(C.apply(C.blank(),v,'origin_foreign'),v,'media_no');s=C.apply(s,v,'media_reset');assert(C.ready(v,s.records[v.id]));assert.equal(s.records[v.id].rating,null);});
-test('media confirmation does not confirm original country',()=>{const s=C.apply(C.blank(),v,'media_yes');assert.equal(s.records[v.id].origin,'unknown');assert(!C.ready(v,s.records[v.id]));});
+test('media confirmation does not confirm original country and country confirmation is no longer required',()=>{const s=C.apply(C.blank(),v,'media_yes');assert.equal(s.records[v.id].origin,'unknown');assert(C.ready(v,s.records[v.id]));});
 test('v11 migrations preserve candidates notes',()=>{const r={schema:1,records:{[v.id]:{rating:'like',origin:'non_korean',stage:'candidate',memo:'keep'}}};const x=C.normalize(r).records[v.id];assert.equal(x.media,'unknown');assert.equal(x.stage,'candidate');assert.equal(x.memo,'keep');assert(C.ready(v,x));});
 test('backup includes media no metadata',()=>{const data=C.exportData(C.apply(C.blank(),v,'media_no'));assert.equal(data.records[v.id].media,'not_screen');assert.equal(data.records[v.id].cache,undefined);});
 test('filter preferences sanitize',()=>{const f=C.normalizeFilters({maxSubscribers:NaN,minSeconds:180,maxSeconds:10,languages:['xx','en','en','__proto__'],balance:'yes'});assert.equal(f.maxSubscribers,0);assert.equal(f.minSeconds,0);assert.equal(f.maxSeconds,180);assert.deepEqual(f.languages,['en']);assert.equal(f.balance,true);});
@@ -125,11 +125,11 @@ test('screen gate explains movie and tv retrieval without claiming verification'
 });
 
 
-test('1.8 preference profile uses likes and dislikes but excludes structural exclusions',()=>{
+test('preference profile uses likes and explicit tone dislikes but excludes structural exclusions',()=>{
  const a={...fvideo,id:'LikeVideo01',channelId:'chan-a',discoveryRoutes:['familiar'],discoveryLabels:['관계 회복']};
  const b={...fvideo,id:'BadVideo0001',channelId:'chan-b',discoveryRoutes:['open'],discoveryLabels:['새 작품']};
  const c={...fvideo,id:'SkipVideo001',channelId:'chan-c',discoveryRoutes:['expand'],discoveryLabels:['존엄']};
- const records={LikeVideo01:{rating:'like'},BadVideo0001:{rating:'dislike'},SkipVideo001:{rating:'like',format:'not_short'}};
+ const records={LikeVideo01:{rating:'like'},BadVideo0001:{rating:'dislike',dislikeReason:'not_my_tone'},SkipVideo001:{rating:'like',format:'not_short'}};
  const p=C.buildTasteProfile([a,b,c],records);assert.equal(p.likedCount,1);assert.equal(p.dislikedCount,1);assert.equal(p.excludedFromTaste,1);assert.equal(p.liked.themes['관계 회복'],1);assert.equal(p.disliked.themes['새 작품'],1);
 });
 test('1.8 preference classes are explainable and dislikes do not delete candidates',()=>{
@@ -152,7 +152,7 @@ test('1.8.2 dislike reasons migrate without inventing reasons',()=>{
  let s=C.apply(C.blank(),v,'dislike_not_tone');assert.equal(s.records[v.id].dislikeReason,'not_my_tone');
  s=C.apply(s,v,'unrate');assert.equal(s.records[v.id].rating,null);assert.equal(s.records[v.id].dislikeReason,null);
 });
-test('1.8.2 only explicit not-my-tone dislikes teach negative taste',()=>{
+test('1.9.1 only explicit tone dislikes teach negative taste',()=>{
  const a={...fvideo,id:'LikeVideo01',channelId:'a',discoveryRoutes:['familiar']};
  const b={...fvideo,id:'BadVideo0001',channelId:'b',discoveryRoutes:['open']};
  const c={...fvideo,id:'Overused0001',channelId:'c',discoveryRoutes:['expand']};
@@ -184,4 +184,23 @@ test('1.9 audience modes separate surging and cumulative proof',()=>{
  assert(C.matchesFilters(surge,{},{...defaults(),audience:'surging'}));
  assert(!C.matchesFilters(proven,{},{...defaults(),audience:'surging'}));
  assert(C.matchesFilters(proven,{},{...defaults(),audience:'proven'}));
+});
+
+
+test('1.9.1 migrates overused dislike into tone match plus freshness flag',()=>{
+ const r=C.normalize({schema:1,records:{[v.id]:{rating:'dislike',dislikeReason:'overused'}}}).records[v.id];
+ assert.equal(r.rating,'like');assert.equal(r.dislikeReason,null);assert.equal(r.freshness,'overused');
+});
+test('1.9.1 migrates weak-story dislike into tone match plus story flag',()=>{
+ const r=C.normalize({schema:1,records:{[v.id]:{rating:'dislike',dislikeReason:'weak_story'}}}).records[v.id];
+ assert.equal(r.rating,'like');assert.equal(r.story,'weak');
+});
+test('1.9.1 quality flags toggle without becoming tone dislikes',()=>{
+ let s=C.apply(C.blank(),v,'like');s=C.apply(s,v,'toggle_overused');s=C.apply(s,v,'toggle_weak_story');
+ const r=s.records[v.id];assert.equal(r.rating,'like');assert.equal(r.freshness,'overused');assert.equal(r.story,'weak');assert.equal(r.dislikeReason,null);
+ s=C.apply(s,v,'toggle_overused');assert.equal(s.records[v.id].freshness,null);
+});
+test('1.9.1 Korean and non-screen exclusions still block production candidates',()=>{
+ let s=C.apply(C.blank(),v,'origin_korean');assert.throws(()=>C.apply(s,v,'candidate'));
+ s=C.apply(C.blank(),v,'media_no');assert.throws(()=>C.apply(s,v,'candidate'));
 });
