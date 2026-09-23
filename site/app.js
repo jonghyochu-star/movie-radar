@@ -8,7 +8,7 @@ let filters=C.defaultFilters();
 const defaultCollectionPrefs=()=>({preset:'english_focus',customWeights:'en:70,ja:5,es:5,pt:5,fr:5,de:4,it:3,zh-Hans:3',retryRound:1});
 let collectionPrefs=defaultCollectionPrefs();
 let state=C.blank(), dataset={mode:'demo',videos:[],generatedAt:null,warnings:[]};
-let tab='review', view='grid', page=0, skipped=new Set(), undo=null, editedId=null, dislikeId=null, followupId=null, toastTimer;
+let tab='review', view='grid', page=0, skipped=new Set(), undo=null, editedId=null, dislikeId=null, followupId=null, followupDraft=null, toastTimer;
 const backupDbName='movie-radar-local-backups-v1',backupStore='handles',backupHandleKey='backup-directory',backupLabelKey=prefix+':backup-label';
 const hasFolderAccess=()=>typeof window.showDirectoryPicker==='function'&&typeof indexedDB!=='undefined';
 function backupFilename(now=new Date()){
@@ -208,19 +208,24 @@ function renderCard(v){
  let thumb=sample(v)?'<div class="demo-art"><b>◇</b><span>SAMPLE</span></div>':'<span>미리보기 없음</span>';
  if(v.thumbnail&&/^https:\/\/(?:i\.ytimg\.com|img\.youtube\.com)\//.test(v.thumbnail))thumb=`<img src="${esc(v.thumbnail)}" alt="${esc(v.title)}" loading="lazy">`;
  const tone=r.rating==='like'?'결 맞음':r.rating==='dislike'?'결 아님':null;
- const labels=[tone,r.freshness==='overused'?'많이 본 소재':null,r.story==='weak'?'전개 약함':null,r.stage==='candidate'?'제작 후보':r.stage==='done'?'제작 완료':null].filter(Boolean);
- const toneMatch=r.rating==='like'
-   ? '<button class="tone-match selected" data-action="unrate" title="결 맞음 평가를 취소합니다.">♥ 결 맞음 ✓</button>'
+ const pendingLike=['review','discover'].includes(tab)&&followupId===v.id&&followupDraft;
+ const labels=[tone,pendingLike?'결 맞음 · 저장 전':null,r.freshness==='overused'?'많이 본 소재':null,r.story==='weak'?'전개 약함':null,r.stage==='candidate'?'제작 후보':r.stage==='done'?'제작 완료':null].filter(Boolean);
+ const toneMatch=(r.rating==='like'||pendingLike)
+   ? `<button class="tone-match selected" data-action="${pendingLike?'followup_cancel':'unrate'}" title="${pendingLike?'저장 전 결 맞음 선택을 취소합니다.':'결 맞음 평가를 취소합니다.'}">♥ 결 맞음 ✓</button>`
    : '<button class="tone-match" data-action="like" title="내가 찾는 감정·관계·이야기 결과 맞을 때 누릅니다.">♡ 결 맞음</button>';
  const toneNo=r.rating==='dislike'
    ? '<button class="tone-no selected" data-action="unrate" title="결 아님 평가를 취소합니다.">결 아님 ✓</button>'
    : '<button class="tone-no" data-action="dislike_not_tone" title="정서·관계·이야기 방향 자체가 내 취향과 다를 때 누릅니다.">결 아님</button>';
  let candidate='';
- if(r.stage==='candidate')candidate='<button class="candidate selected" data-action="uncandidate" title="제작 후보에서 빼되 결 맞음 평가는 유지합니다.">★ 제작 후보 ✓</button>';
+ if(isFollowup){
+   candidate=`<button class="candidate ${followupDraft.candidate?'selected':''}" data-action="followup_candidate" title="세부 판단과 함께 제작 후보로 저장합니다.">${followupDraft.candidate?'★ 제작 후보 ✓':'☆ 제작 후보'}</button>`;
+ }else if(r.stage==='candidate')candidate='<button class="candidate selected" data-action="uncandidate" title="제작 후보에서 빼되 결 맞음 평가는 유지합니다.">★ 제작 후보 ✓</button>';
  else if(r.stage==='done')candidate='<button class="candidate selected" data-action="reopen">제작 후보로 되돌리기</button>';
  else candidate='<button class="candidate" data-action="candidate" title="실제로 만들고 싶은 소재입니다. 누르면 결 맞음도 함께 저장됩니다.">☆ 제작 후보</button>';
- const isFollowup=['review','discover'].includes(tab)&&followupId===v.id&&r.rating==='like';
- const quality=r.rating==='like'?`<div class="quality-row${isFollowup?' followup':''}"><span>${isFollowup?'결 맞음 · 이어서 판단':'결 맞음 세부'}</span><button class="${r.freshness==='overused'?'selected':''}" data-action="toggle_overused">많이 본 소재${r.freshness==='overused'?' ✓':''}</button><button class="${r.story==='weak'?'selected':''}" data-action="toggle_weak_story">전개 약함${r.story==='weak'?' ✓':''}</button>${isFollowup?'<button class="followup-done" data-action="followup_done">해당 없거나 선택 완료 → 다음</button>':''}</div>`:'';
+ const isFollowup=['review','discover'].includes(tab)&&followupId===v.id&&followupDraft;
+ const followupOverused=isFollowup?Boolean(followupDraft.overused):r.freshness==='overused';
+ const followupWeak=isFollowup?Boolean(followupDraft.weak):r.story==='weak';
+ const quality=(r.rating==='like'||isFollowup)?`<div class="quality-row${isFollowup?' followup':''}"><span>${isFollowup?'결 맞음 · 세부 판단 후 저장':'결 맞음 세부'}</span><button class="${followupOverused?'selected':''}" data-action="${isFollowup?'followup_overused':'toggle_overused'}">많이 본 소재${followupOverused?' ✓':''}</button><button class="${followupWeak?'selected':''}" data-action="${isFollowup?'followup_weak':'toggle_weak_story'}">전개 약함${followupWeak?' ✓':''}</button>${isFollowup?'<button class="followup-done" data-action="followup_done">선택 완료 · 다음 영상</button>':''}</div>`:'';
  const reviewExtra=tab==='review'?'<button class="later-link" data-action="later">나중에</button>':'';
  const stageActions=r.stage==='candidate'?'<button class="done-action" data-action="done">제작 완료</button>':'';
  const details=[];
@@ -276,7 +281,48 @@ function render(){
  $('#views-label').hidden=!exploring;$('#revisit').hidden=!exploring||skipped.size===0;
 }
 function snapshot(){undo={state:JSON.parse(JSON.stringify(state)),skipped:new Set(skipped)};}
-function handleAction(id,action){const v=allVideos().find(x=>x.id===id);if(!v)return;if(action==='followup_done'){followupId=null;render();toast('세부 판단을 마쳤습니다.');return;}if(action==='dislike_reason'){dislikeId=id;$('#dislike-dialog').showModal();return;}if(action==='memo'){editedId=id;$('#edit-label').value=historyRecord(v).label||'';$('#edit-memo').value=historyRecord(v).memo||'';$('#edit-dialog').showModal();return;}snapshot();if(action==='later'){followupId=null;skipped.add(id);render();toast('이번 탐색에서만 넘겼습니다. 취향 평가에는 쓰지 않습니다.',true);return;}if(['format_yes','format_no'].includes(action)&&!confirm(action==='format_yes'?'YouTube 원본에서 Shorts임을 확인하셨나요? 길이·태그만으로 판단하지 마세요.':'일반 영상으로 제외할까요? 좋아요·메모는 남기고 추천·보관함·후보에서 숨깁니다. 평가 기록에서 취소할 수 있습니다.'))return;if(action==='media_no'&&!confirm('영화·드라마 장면이 아닌 영상으로 제외할까요? 기록은 남아 있어 되돌릴 수 있습니다.'))return;if(['origin_foreign','origin_korean'].includes(action)&&!confirm(action==='origin_foreign'?'원작을 확인했고, 한국 영화가 아닌 작품이 맞나요? 영상 언어·채널 국가만으로 판단하지 마세요.':'원작이 한국 영화임을 확인했나요? 이 영상만 추천·보관함·제작 후보에서 숨기며, 메모와 기존 기록은 보존합니다.'))return;try{state=C.apply(state,v,action);}catch(error){toast(error.message);return;}if(['like','candidate'].includes(action)&&['review','discover'].includes(tab))followupId=id;else if(['dislike','dislike_not_tone','media_no','format_no','origin_korean','unrate'].includes(action))followupId=null;const ok=persist();render();if(followupId===id)requestAnimationFrame(()=>document.querySelector(`[data-id="${CSS.escape(id)}"] .quality-row.followup`)?.scrollIntoView({block:'nearest',behavior:'smooth'}));if(ok)toast({format_yes:'쇼츠로 확인했습니다. 원작과 감동결은 별도입니다.',format_no:'일반 영상으로 제외했습니다. 취향 평가는 바꾸지 않았습니다.',format_reset:'쇼츠 확인을 취소했습니다.',like:'결 맞음으로 저장했습니다.',dislike:'결 아님으로 기록했습니다.',dislike_not_tone:'결 아님으로 기록했습니다.',dislike_overused:'결 맞음 + 많이 본 소재로 저장했습니다.',dislike_weak_story:'결 맞음 + 전개 약함으로 저장했습니다.',dislike_other:'기존 기타 기록을 남겼습니다.',toggle_overused:'많이 본 소재 표시를 바꿨습니다.',toggle_weak_story:'전개 약함 표시를 바꿨습니다.',candidate:'결 맞음 + 제작 후보로 저장했습니다.',uncandidate:'제작 후보에서 뺐습니다. 결 맞음은 유지됩니다.',done:'제작 완료로 기록했습니다.',reopen:'제작 후보로 되돌렸습니다.',unrate:'취향 평가를 취소했습니다.',origin_foreign:'한국 외 원작으로 기록했습니다. 소재 탐색에서 검토할 수 있습니다.',origin_korean:'한국 영화로 제외했습니다. 평가 기록에서 되돌릴 수 있습니다.',origin_reset:'원작 확인을 취소했습니다. 확인 필요 탭으로 분리합니다.',media_no:'영화·드라마가 아닌 영상으로 제외했습니다. 평가 기록에서 취소할 수 있습니다.',media_yes:'영화·드라마로 확인했습니다. 원작 제작국은 별도로 확인하세요.',media_reset:'영상 종류 확인을 취소했습니다. 원래 필터를 적용합니다.'}[action],true);}
+function handleAction(id,action){
+ const v=allVideos().find(x=>x.id===id);if(!v)return;
+ const reviewing=['review','discover'].includes(tab);
+
+ // 결 맞음은 세부 판단이 끝날 때까지 실제 보관함에 저장하지 않는다.
+ if(reviewing&&action==='like'){
+   followupId=id;followupDraft={overused:false,weak:false,candidate:false};
+   render();
+   requestAnimationFrame(()=>document.querySelector(`[data-id="${CSS.escape(id)}"] .quality-row.followup`)?.scrollIntoView({block:'nearest',behavior:'smooth'}));
+   return;
+ }
+ if(reviewing&&followupId===id&&action==='followup_overused'){followupDraft.overused=!followupDraft.overused;render();return;}
+ if(reviewing&&followupId===id&&action==='followup_weak'){followupDraft.weak=!followupDraft.weak;render();return;}
+ if(reviewing&&followupId===id&&action==='followup_candidate'){followupDraft.candidate=!followupDraft.candidate;render();return;}
+ if(reviewing&&followupId===id&&action==='followup_cancel'){followupId=null;followupDraft=null;render();return;}
+ if(reviewing&&followupId===id&&action==='followup_done'){
+   snapshot();
+   try{
+     state=C.apply(state,v,'like');
+     if(followupDraft.overused)state=C.apply(state,v,'toggle_overused');
+     if(followupDraft.weak)state=C.apply(state,v,'toggle_weak_story');
+     if(followupDraft.candidate)state=C.apply(state,v,'candidate');
+   }catch(error){toast(error.message);return;}
+   const detail=[followupDraft.overused?'많이 본 소재':null,followupDraft.weak?'전개 약함':null,followupDraft.candidate?'제작 후보':null].filter(Boolean);
+   followupId=null;followupDraft=null;
+   const ok=persist();render();
+   if(ok)toast(`결 맞음${detail.length?' · '+detail.join(' · '):''}으로 저장했습니다.`,true);
+   return;
+ }
+
+ if(action==='dislike_reason'){dislikeId=id;$('#dislike-dialog').showModal();return;}
+ if(action==='memo'){editedId=id;$('#edit-label').value=historyRecord(v).label||'';$('#edit-memo').value=historyRecord(v).memo||'';$('#edit-dialog').showModal();return;}
+ snapshot();
+ if(action==='later'){followupId=null;followupDraft=null;skipped.add(id);render();toast('이번 탐색에서만 넘겼습니다. 취향 평가에는 쓰지 않습니다.',true);return;}
+ if(['format_yes','format_no'].includes(action)&&!confirm(action==='format_yes'?'YouTube 원본에서 Shorts임을 확인하셨나요? 길이·태그만으로 판단하지 마세요.':'일반 영상으로 제외할까요? 좋아요·메모는 남기고 추천·보관함·후보에서 숨깁니다. 평가 기록에서 취소할 수 있습니다.'))return;
+ if(action==='media_no'&&!confirm('영화·드라마 장면이 아닌 영상으로 제외할까요? 기록은 남아 있어 되돌릴 수 있습니다.'))return;
+ if(['origin_foreign','origin_korean'].includes(action)&&!confirm(action==='origin_foreign'?'원작을 확인했고, 한국 영화가 아닌 작품이 맞나요? 영상 언어·채널 국가만으로 판단하지 마세요.':'원작이 한국 영화임을 확인했나요? 이 영상만 추천·보관함·제작 후보에서 숨기며, 메모와 기존 기록은 보존합니다.'))return;
+ try{state=C.apply(state,v,action);}catch(error){toast(error.message);return;}
+ if(['dislike','dislike_not_tone','media_no','format_no','origin_korean','unrate'].includes(action)){followupId=null;followupDraft=null;}
+ const ok=persist();render();
+ if(ok)toast({format_yes:'쇼츠로 확인했습니다. 원작과 감동결은 별도입니다.',format_no:'일반 영상으로 제외했습니다. 취향 평가는 바꾸지 않았습니다.',format_reset:'쇼츠 확인을 취소했습니다.',like:'결 맞음으로 저장했습니다.',dislike:'결 아님으로 기록했습니다.',dislike_not_tone:'결 아님으로 기록했습니다.',dislike_overused:'결 맞음 + 많이 본 소재로 저장했습니다.',dislike_weak_story:'결 맞음 + 전개 약함으로 저장했습니다.',dislike_other:'기존 기타 기록을 남겼습니다.',toggle_overused:'많이 본 소재 표시를 바꿨습니다.',toggle_weak_story:'전개 약함 표시를 바꿨습니다.',candidate:'결 맞음 + 제작 후보로 저장했습니다.',uncandidate:'제작 후보에서 뺐습니다. 결 맞음은 유지됩니다.',done:'제작 완료로 기록했습니다.',reopen:'제작 후보로 되돌렸습니다.',unrate:'취향 평가를 취소했습니다.',origin_foreign:'한국 외 원작으로 기록했습니다. 소재 탐색에서 검토할 수 있습니다.',origin_korean:'한국 영화로 제외했습니다. 평가 기록에서 되돌릴 수 있습니다.',origin_reset:'원작 확인을 취소했습니다. 확인 필요 탭으로 분리합니다.',media_no:'영화·드라마가 아닌 영상으로 제외했습니다. 평가 기록에서 취소할 수 있습니다.',media_yes:'영화·드라마로 확인했습니다. 원작 제작국은 별도로 확인하세요.',media_reset:'영상 종류 확인을 취소했습니다. 원래 필터를 적용합니다.'}[action],true);
+}
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function fetchDeployment(){
  const response=await fetch('data/videos.json?t='+Date.now(),{cache:'no-store'});
@@ -289,8 +335,8 @@ function applyDeployment(data){
  dataset=data;
  const stale=data.mode==='live'&&(!Number.isFinite(Date.parse(data.generatedAt))||Date.now()-Date.parse(data.generatedAt)>C.MAX_AGE);
  if(stale){dataset={...data,videos:[]};warn('수집 정보가 29일을 넘겨 표시하지 않습니다. GitHub Actions에서 live로 다시 수집해 주세요.');}
- else{$('#notice').classList.remove('error');$('#notice').textContent=data.mode==='demo'?'샘플 모드입니다. 제목·조회수는 기능 확인용 가상 데이터이며 실제 영상이 아닙니다. API 키를 등록하고 live로 실행하면 실제 목록으로 바뀝니다.':(data.warnings||[]).length?'수집 안내: '+data.warnings.join(' / '):'1.9.2 · 결 맞음을 누르면 같은 카드에서 바로 신선도·전개를 이어서 판단할 수 있습니다.';}
- if(data.mode==='live'&&data.collectorVersion!=='1.9')warn('앱은 1.9.2이지만 수집 데이터는 이전 버전입니다. Actions에서 새 main / live 실행이 필요합니다.');
+ else{$('#notice').classList.remove('error');$('#notice').textContent=data.mode==='demo'?'샘플 모드입니다. 제목·조회수는 기능 확인용 가상 데이터이며 실제 영상이 아닙니다. API 키를 등록하고 live로 실행하면 실제 목록으로 바뀝니다.':(data.warnings||[]).length?'수집 안내: '+data.warnings.join(' / '):'1.9.3 · 결 맞음은 세부 판단을 마친 뒤 한 번에 저장되고 새 후보에서 사라집니다.';}
+ if(data.mode==='live'&&data.collectorVersion!=='1.9')warn('앱은 1.9.3이지만 수집 데이터는 이전 버전입니다. Actions에서 새 main / live 실행이 필요합니다.');
  for(const v of dataset.videos){if(state.records[v.id]&&v.fetchedAt)state.records[v.id].cache=v;}
  state=C.normalize(state);persist();$('#mode').textContent=data.mode==='live'?'YouTube 연결':'SAMPLE';$('#mode').classList.toggle('live',data.mode==='live');
  const round=data.collectionPlan?.retryRound||'—';
@@ -313,7 +359,7 @@ async function refresh(waitForNew=false){
  }catch(error){warn(error.message+' 보관함은 계속 사용할 수 있습니다.');render();}
  finally{button.disabled=false;button.textContent=original;}
 }
-$('#tabs').onclick=e=>{const b=e.target.closest('[data-tab]');if(!b)return;followupId=null;tab=b.dataset.tab;page=0;$('#search').value='';$('#sort').value=['discover','review'].includes(tab)?'priority':'saved';render();};$('#content').onclick=e=>{const b=e.target.closest('[data-action]');if(b)handleAction(b.closest('[data-id]').dataset.id,b.dataset.action);};
+$('#tabs').onclick=e=>{const b=e.target.closest('[data-tab]');if(!b)return;followupId=null;followupDraft=null;tab=b.dataset.tab;page=0;$('#search').value='';$('#sort').value=['discover','review'].includes(tab)?'priority':'saved';render();};$('#content').onclick=e=>{const b=e.target.closest('[data-action]');if(b)handleAction(b.closest('[data-id]').dataset.id,b.dataset.action);};
 $('#layout').onclick=()=>{view=view==='card'?'grid':'card';page=0;render();};$('#next').onclick=()=>{page++;render();};$('#previous').onclick=()=>{page--;render();};$('#revisit').onclick=()=>{skipped.clear();page=0;render();};for(const id of ['#search','#sort'])$(id).addEventListener(id==='#search'?'input':'change',()=>{page=0;render();});$('#refresh').onclick=()=>refresh(true);
 $('#edit-form').onsubmit=e=>{e.preventDefault();snapshot();const v=allVideos().find(x=>x.id===editedId),r=state.records[editedId]||C.record(editedId);r.label=$('#edit-label').value.trim();r.memo=$('#edit-memo').value.trim();r.updatedAt=new Date().toISOString();if(v?.fetchedAt)r.cache=v;state.records[editedId]=r;const ok=persist();$('#edit-dialog').close();render();if(ok)toast('메모를 저장했습니다.',true);};$('#edit-cancel').onclick=()=>$('#edit-dialog').close();
 $('#dislike-dialog').onclick=e=>{const b=e.target.closest('[data-dislike-reason]');if(!b)return;const id=dislikeId,v=allVideos().find(x=>x.id===id);if(!v)return;const action='dislike_'+b.dataset.dislikeReason;snapshot();try{state=C.apply(state,v,action);}catch(error){toast(error.message);return;}dislikeId=null;$('#dislike-dialog').close();const ok=persist();render();if(ok)toast({dislike_not_tone:'내 결 아님으로 기록했습니다. 이 이유만 취향 반대 신호로 학습합니다.',dislike_overused:'많이 본 소재로 기록했습니다. 취향 반대 신호로는 학습하지 않습니다.',dislike_weak_story:'전개가 약함으로 기록했습니다. 취향 반대 신호로는 학습하지 않습니다.',dislike_other:'기타 이유로 기록했습니다. 취향 반대 신호로는 학습하지 않습니다.'}[action],true);};
@@ -321,7 +367,7 @@ $('#dislike-cancel').onclick=()=>{dislikeId=null;$('#dislike-dialog').close();};
 $('#add-link').onclick=()=>$('#link-dialog').showModal();$('#link-cancel').onclick=()=>$('#link-dialog').close();$('#link-form').onsubmit=e=>{e.preventDefault();try{const id=C.parseLink($('#link-url').value);snapshot();state=C.apply(state,{id},'like');const label=$('#link-label').value.trim();if(label)state.records[id].label=label;const ok=persist();$('#link-dialog').close();$('#link-form').reset();tab='likes';page=0;render();if(ok)toast('링크를 결 맞음 보관함에 저장했습니다.',true);}catch(error){toast(error.message);}};
 $('#backup-folder').onclick=chooseBackupFolder;$('#backup').onclick=saveBackup;
 $('#restore').onclick=()=>$('#import-file').click();$('#import-file').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>10000000)throw Error('10MB 이하의 백업 파일을 선택하세요.');const imported=C.normalize(JSON.parse(await f.text()));if(!confirm(`백업의 ${Object.keys(imported.records).length}개 기록을 합칠까요? 같은 소재는 더 최근 기록을 유지합니다.`))return;snapshot();storageBlocked=false;state=C.merge(state,imported);for(const v of dataset.videos){if(state.records[v.id])state.records[v.id].cache=v;}const ok=persist();render();if(ok)toast('백업을 복원했습니다.',true);}catch(error){toast('복원 실패: '+error.message);}finally{e.target.value='';}};
-$('#clear').onclick=()=>{if(!confirm('이 Movie Radar의 좋아요·제작 상태·메모를 모두 삭제할까요? 먼저 백업을 권장합니다. 기존 Shorts Radar는 삭제하지 않습니다.'))return;storageBlocked=false;state=C.blank();undo=null;skipped.clear();persist();render();toast('이 앱의 내 기록을 삭제했습니다.');};
+$('#clear').onclick=()=>{if(!confirm('이 Movie Radar의 좋아요·제작 상태·메모를 모두 삭제할까요? 먼저 백업을 권장합니다. 기존 Shorts Radar는 삭제하지 않습니다.'))return;storageBlocked=false;state=C.blank();undo=null;followupId=null;followupDraft=null;skipped.clear();persist();render();toast('이 앱의 내 기록을 삭제했습니다.');};
 
 $('#route-filter').onchange=()=>{filters.route=$('#route-filter').value;saveFilters();};
 $('#shorts-filter').onchange=()=>{filters.shorts=$('#shorts-filter').value;saveFilters();};
