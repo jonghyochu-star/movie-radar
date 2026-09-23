@@ -61,3 +61,15 @@
 .dislike-reasons strong,.dislike-reasons span{display:block}
 .dislike-reasons span{font-size:11px;color:var(--muted);line-height:1.6;margin-top:5px}
 @media(max-width:560px){.dislike-reasons{grid-template-columns:1fr}}
+
+
+/* 1.9 audience-response evidence. */
+.audience-strip{margin:10px 0 12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.audience-strip>span{font-size:11px;font-weight:700;border-radius:999px;padding:5px 8px;border:1px solid var(--line)}
+.audience-hot{background:#fff1eb;border-color:#efb9a2!important;color:#a94a25}
+.audience-mega{background:#f3edff;border-color:#cbbaf0!important;color:#5e43aa}
+.audience-proven{background:#eef4ff;border-color:#b9ccec!important;color:#355d98}
+.audience-strong{background:#eef8f2;border-color:#b9ddc8!important;color:#296247}
+.audience-watch{background:#f4f5f7;border-color:#d9dde4!important;color:#697386}
+.audience-strip details{flex-basis:100%;font-size:11px;color:var(--muted)}
+.audience-strip summary{cursor:pointer}.audience-strip p{margin:6px 0;line-height:1.7}
