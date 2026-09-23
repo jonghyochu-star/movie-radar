@@ -9,7 +9,7 @@
   const validId = id => typeof id === 'string' && /^(?:[A-Za-z0-9_-]{11}|demo-[1-9][0-9]*)$/.test(id);
   const blank = () => ({schema:1, records:Object.create(null), batchFeedback:[]});
   function record(id) {
-    return {id,rating:null,dislikeReason:null,stage:null,origin:'unknown',media:'unknown',format:'unknown',memo:'',label:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),cache:null};
+    return {id,rating:null,dislikeReason:null,freshness:null,story:null,legacyReason:null,stage:null,origin:'unknown',media:'unknown',format:'unknown',memo:'',label:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),cache:null};
   }
   function normalize(raw, now=Date.now()) {
     if (!raw || raw.schema !== 1 || typeof raw.records !== 'object' || !raw.records || Array.isArray(raw.records)) throw Error('Movie Radar 백업 형식이 아닙니다.');
@@ -20,6 +20,14 @@
       const x=record(id);
       x.rating=['like','dislike'].includes(r.rating)?r.rating:null;
       x.dislikeReason=['not_my_tone','overused','weak_story','other'].includes(r.dislikeReason)?r.dislikeReason:null;
+      x.freshness=r.freshness==='overused'?'overused':null;
+      x.story=r.story==='weak'?'weak':null;
+      x.legacyReason=r.legacyReason==='other'?'other':null;
+      // 1.9.1 migration: "많이 본 소재" and "전개 약함" were never tone dislikes.
+      // Preserve the user's work by converting them to tone-match + separate quality flags.
+      if(x.rating==='dislike'&&x.dislikeReason==='overused'){x.rating='like';x.freshness='overused';x.dislikeReason=null;}
+      if(x.rating==='dislike'&&x.dislikeReason==='weak_story'){x.rating='like';x.story='weak';x.dislikeReason=null;}
+      if(x.rating==='dislike'&&x.dislikeReason==='other'){x.rating=null;x.legacyReason='other';x.dislikeReason=null;}
       x.stage=['candidate','done'].includes(r.stage)?r.stage:null;
       x.origin=originOf(r);
       x.media=mediaOf(r);
@@ -40,22 +48,26 @@
     const next=JSON.parse(JSON.stringify(state)); next.records=Object.assign(Object.create(null),next.records); const r=next.records[video.id]||record(video.id);
     switch(action) {
       case 'like': r.rating='like'; r.dislikeReason=null; break;
-      case 'dislike': r.rating='dislike'; break;
-      case 'dislike_not_tone': r.rating='dislike'; r.dislikeReason='not_my_tone'; break;
-      case 'dislike_overused': r.rating='dislike'; r.dislikeReason='overused'; break;
-      case 'dislike_weak_story': r.rating='dislike'; r.dislikeReason='weak_story'; break;
-      case 'dislike_other': r.rating='dislike'; r.dislikeReason='other'; break;
+      case 'dislike':
+      case 'dislike_not_tone': r.rating='dislike'; r.dislikeReason='not_my_tone'; r.freshness=null; r.story=null; break;
+      // Backward-compatible actions now keep tone and quality separate.
+      case 'dislike_overused': r.rating='like'; r.dislikeReason=null; r.freshness='overused'; break;
+      case 'dislike_weak_story': r.rating='like'; r.dislikeReason=null; r.story='weak'; break;
+      case 'dislike_other': r.legacyReason='other'; break;
+      case 'toggle_overused':
+        r.rating='like'; r.dislikeReason=null; r.freshness=r.freshness==='overused'?null:'overused'; break;
+      case 'toggle_weak_story':
+        r.rating='like'; r.dislikeReason=null; r.story=r.story==='weak'?null:'weak'; break;
       case 'candidate':
-        if(formatOf(r)==='not_short') throw Error('일반 영상으로 표시되어 있습니다. 쇼츠 여부를 먼저 확인해 주세요.');
-        if (mediaOf(r)==='not_screen' || (!isSample(video) && originOf(r) !== 'non_korean')) throw Error('원작이 한국 외 작품인지 먼저 확인해 주세요.');
-        r.stage='candidate'; break;
+        if(formatOf(r)==='not_short') throw Error('일반 영상으로 표시되어 있습니다.');
+        if(mediaOf(r)==='not_screen'||originOf(r)==='korean') throw Error('제외된 영상은 제작 후보로 넣을 수 없습니다.');
+        r.rating='like';r.dislikeReason=null;r.stage='candidate'; break;
       case 'uncandidate': r.stage=null; break;
       case 'done': r.stage='done'; break;
       case 'reopen':
-        if(formatOf(r)==='not_short') throw Error('일반 영상으로 표시되어 있습니다. 쇼츠 여부를 먼저 확인해 주세요.');
-        if (mediaOf(r)==='not_screen' || (!isSample(video) && originOf(r) !== 'non_korean')) throw Error('원작이 한국 외 작품인지 먼저 확인해 주세요.');
+        if(formatOf(r)==='not_short'||mediaOf(r)==='not_screen'||originOf(r)==='korean') throw Error('제외된 영상은 제작 후보로 되돌릴 수 없습니다.');
         r.stage='candidate'; break;
-      case 'unrate': r.rating=null; r.dislikeReason=null; break;
+      case 'unrate': r.rating=null; r.dislikeReason=null; r.freshness=null; r.story=null; break;
       case 'origin_foreign': r.origin='non_korean'; break;
       case 'origin_korean': r.origin='korean'; break;
       case 'origin_reset': r.origin='unknown'; break;
@@ -75,8 +87,10 @@
     return r && ['non_korean','korean'].includes(r.origin) ? r.origin : 'unknown';
   }
   function isSample(v) { return typeof v?.id==='string' && /^demo-/.test(v.id); }
-  function ready(v,r) { return formatOf(r)!=='not_short' && mediaOf(r)!=='not_screen' && (isSample(v) || originOf(r)==='non_korean'); }
-  function needsReview(v,r={}) { return formatOf(r)!=='not_short' && mediaOf(r)!=='not_screen' && !isSample(v) && originOf(r)==='unknown' && !r.rating && !r.stage; }
+  function ready(v,r) { return formatOf(r)!=='not_short' && mediaOf(r)!=='not_screen' && originOf(r)!=='korean'; }
+  function needsReview(v,r={}) { return ready(v,r) && !r.rating && !r.stage; }
+  function freshnessOf(r={}) {return r?.freshness==='overused'?'overused':null;}
+  function storyOf(r={}) {return r?.story==='weak'?'weak':null;}
   function ratio(v) {
     const sub=v.subscribers, views=v.views;
     return typeof sub==='number' && sub>0 && typeof views==='number'?views/sub:null;
@@ -347,5 +361,5 @@
     return roundRobin([...groups.values()].map(g=>balanceLanguage?balanceVideos(g,languageOrder):g));
   }
 
-  return {formatOf, shortsInfo, routesOf, themesOf, ROUTE_LABELS, mixRoutes, recordBatchFeedback, buildTasteProfile, preferenceClass, personalizedBlend, tasteMatch, candidateTier, candidatePriorityGroup, screenGateInfo, audienceInfo, audienceRank, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, broadFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
+  return {formatOf, shortsInfo, routesOf, themesOf, ROUTE_LABELS, mixRoutes, recordBatchFeedback, buildTasteProfile, preferenceClass, personalizedBlend, tasteMatch, candidateTier, candidatePriorityGroup, screenGateInfo, audienceInfo, audienceRank, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, freshnessOf, storyOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, broadFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
 });
