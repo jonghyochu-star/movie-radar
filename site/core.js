@@ -9,7 +9,7 @@
   const validId = id => typeof id === 'string' && /^(?:[A-Za-z0-9_-]{11}|demo-[1-9][0-9]*)$/.test(id);
   const blank = () => ({schema:1, records:Object.create(null), batchFeedback:[]});
   function record(id) {
-    return {id,rating:null,stage:null,origin:'unknown',media:'unknown',format:'unknown',memo:'',label:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),cache:null};
+    return {id,rating:null,dislikeReason:null,stage:null,origin:'unknown',media:'unknown',format:'unknown',memo:'',label:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),cache:null};
   }
   function normalize(raw, now=Date.now()) {
     if (!raw || raw.schema !== 1 || typeof raw.records !== 'object' || !raw.records || Array.isArray(raw.records)) throw Error('Movie Radar 백업 형식이 아닙니다.');
@@ -19,6 +19,7 @@
       if(!validId(id) || !r || typeof r !== 'object') continue;
       const x=record(id);
       x.rating=['like','dislike'].includes(r.rating)?r.rating:null;
+      x.dislikeReason=['not_my_tone','overused','weak_story','other'].includes(r.dislikeReason)?r.dislikeReason:null;
       x.stage=['candidate','done'].includes(r.stage)?r.stage:null;
       x.origin=originOf(r);
       x.media=mediaOf(r);
@@ -38,8 +39,12 @@
     if(!validId(video.id)) throw Error('영상 ID 형식이 잘못되었습니다.');
     const next=JSON.parse(JSON.stringify(state)); next.records=Object.assign(Object.create(null),next.records); const r=next.records[video.id]||record(video.id);
     switch(action) {
-      case 'like': r.rating='like'; break;
+      case 'like': r.rating='like'; r.dislikeReason=null; break;
       case 'dislike': r.rating='dislike'; break;
+      case 'dislike_not_tone': r.rating='dislike'; r.dislikeReason='not_my_tone'; break;
+      case 'dislike_overused': r.rating='dislike'; r.dislikeReason='overused'; break;
+      case 'dislike_weak_story': r.rating='dislike'; r.dislikeReason='weak_story'; break;
+      case 'dislike_other': r.rating='dislike'; r.dislikeReason='other'; break;
       case 'candidate':
         if(formatOf(r)==='not_short') throw Error('일반 영상으로 표시되어 있습니다. 쇼츠 여부를 먼저 확인해 주세요.');
         if (mediaOf(r)==='not_screen' || (!isSample(video) && originOf(r) !== 'non_korean')) throw Error('원작이 한국 외 작품인지 먼저 확인해 주세요.');
@@ -50,7 +55,7 @@
         if(formatOf(r)==='not_short') throw Error('일반 영상으로 표시되어 있습니다. 쇼츠 여부를 먼저 확인해 주세요.');
         if (mediaOf(r)==='not_screen' || (!isSample(video) && originOf(r) !== 'non_korean')) throw Error('원작이 한국 외 작품인지 먼저 확인해 주세요.');
         r.stage='candidate'; break;
-      case 'unrate': r.rating=null; break;
+      case 'unrate': r.rating=null; r.dislikeReason=null; break;
       case 'origin_foreign': r.origin='non_korean'; break;
       case 'origin_korean': r.origin='korean'; break;
       case 'origin_reset': r.origin='unknown'; break;
@@ -223,12 +228,20 @@
     const byId=new Map((Array.isArray(videos)?videos:[]).filter(v=>v&&typeof v.id==='string').map(v=>[v.id,v]));
     const liked={channels:Object.create(null),routes:Object.create(null),themes:Object.create(null)};
     const disliked={channels:Object.create(null),routes:Object.create(null),themes:Object.create(null)};
-    let likedCount=0,dislikedCount=0,usableLikes=0,usableDislikes=0,excludedFromTaste=0;
+    let likedCount=0,dislikedCount=0,usableLikes=0,usableDislikes=0,excludedFromTaste=0,untypedDislikes=0;
+    const dislikeReasonCounts={not_my_tone:0,overused:0,weak_story:0,other:0};
     for(const [id,r] of Object.entries(records||{})){
       if(!r||!['like','dislike'].includes(r.rating))continue;
       // Country/format/content exclusions are not preference signals.
       if(originOf(r)==='korean'||formatOf(r)==='not_short'||mediaOf(r)==='not_screen'){excludedFromTaste++;continue;}
       const isLike=r.rating==='like'; if(isLike)likedCount++; else dislikedCount++;
+      // Only an explicit "내 결 아님" is a negative taste signal.
+      // Legacy dislikes and "많이 봄/전개 약함/기타" remain useful records but do not teach the model that the emotional tone itself is unwanted.
+      if(!isLike){
+        const reason=['not_my_tone','overused','weak_story','other'].includes(r.dislikeReason)?r.dislikeReason:null;
+        if(reason)dislikeReasonCounts[reason]++;else untypedDislikes++;
+        if(reason!=='not_my_tone')continue;
+      }
       const v=byId.get(id)||r.cache;if(!v||typeof v!=='object')continue;
       const bag=isLike?liked:disliked;let used=false;
       if(typeof v.channelId==='string'&&v.channelId){_bump(bag.channels,v.channelId);used=true;}
@@ -236,7 +249,7 @@
       for(const theme of themesOf(v)){_bump(bag.themes,theme);used=true;}
       if(used){if(isLike)usableLikes++;else usableDislikes++;}
     }
-    return {likedCount,dislikedCount,usableLikes,usableDislikes,excludedFromTaste,liked,disliked,
+    return {likedCount,dislikedCount,usableLikes,usableDislikes,excludedFromTaste,untypedDislikes,dislikeReasonCounts,liked,disliked,
       // Legacy aliases retained for older UI/tests.
       channelCounts:liked.channels,routeCounts:liked.routes};
   }
