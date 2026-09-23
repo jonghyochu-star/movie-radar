@@ -3,132 +3,77 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 
 class UiSourceTests(unittest.TestCase):
-    def test_like_saved_visual_exists(self):
+    def test_version_is_191(self):
+        html=(ROOT/'site/index.html').read_text(encoding='utf-8')
+        self.assertIn('version">1.9.1<',html)
+        self.assertIn('styles.css?v=1.9.1',html)
+        self.assertIn('app.js?v=1.9.1',html)
+
+    def test_primary_navigation_is_simple_workflow(self):
+        html=(ROOT/'site/index.html').read_text(encoding='utf-8')
+        for token in ['data-tab="review"','새 후보','data-tab="likes"','결 맞음','data-tab="candidate"','제작 후보','data-tab="done"','제작 완료']:
+            self.assertIn(token,html)
+        self.assertNotIn('data-tab="discover"',html)
+
+    def test_card_has_four_primary_decisions(self):
         app=(ROOT/'site/app.js').read_text(encoding='utf-8')
+        for token in ['♡ 결 맞음','결 아님','☆ 제작 후보','영화·드라마 아님']:
+            self.assertIn(token,app)
+        self.assertIn('toggle_overused',app)
+        self.assertIn('toggle_weak_story',app)
+
+    def test_candidate_is_immediately_available(self):
+        core=(ROOT/'site/core.js').read_text(encoding='utf-8')
+        app=(ROOT/'site/app.js').read_text(encoding='utf-8')
+        self.assertIn("r.rating='like';r.dislikeReason=null;r.stage='candidate'",core)
+        self.assertIn('실제로 만들고 싶은 소재',app)
+
+    def test_advanced_controls_are_collapsed(self):
+        html=(ROOT/'site/index.html').read_text(encoding='utf-8')
         css=(ROOT/'site/styles.css').read_text(encoding='utf-8')
-        self.assertIn('♥ 좋아요 저장됨',app)
-        self.assertIn('is-liked',app)
-        self.assertIn('.card.is-liked',css)
-    def test_review_queue_is_current_deployment_only(self):
-        app=(ROOT/'site/app.js').read_text(encoding='utf-8')
-        self.assertIn("if(target==='review')return collected.has(v.id)&&C.needsReview(v,r)",app)
-
-    def test_key_controls_have_hover_help(self):
-        html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-        for control in ['collect-preset','retry-round','max-subs','shorts-filter','no-harvest','find-more','copy-seeds']:
-            pos=html.find(f'id="{control}"')
-            self.assertNotEqual(pos,-1,control)
-            snippet=html[max(0,pos-160):pos+500]
-            self.assertIn('title=',snippet,control)
-    def test_version_is_19(self):
-        html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-        self.assertIn('version">1.9<',html)
-
-
-    def test_broad_candidate_button_exists(self):
-        html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-        app=(ROOT/'site/app.js').read_text(encoding='utf-8')
-        self.assertIn('id="broad-filters"',html)
-        self.assertIn('전체 후보 보기',html)
-        self.assertIn("C.broadFilters()",app)
-
-    def test_seed_copy_and_quota_summary_present(self):
-        app=(ROOT/'site/app.js').read_text(encoding='utf-8')
-        self.assertIn('seed_video_ids:',app)
-        self.assertIn('likedSeedIds',app)
-        self.assertIn('searchListCalls',app)
-
+        self.assertIn('수집 · 필터 · 백업 설정',html)
+        self.assertIn('class="utility-panel"',html)
+        self.assertIn('.advanced-hidden-controls{display:none!important}',css)
 
     def test_refresh_waits_for_new_pages_deployment(self):
         app=(ROOT/'site/app.js').read_text(encoding='utf-8')
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
         self.assertIn('data.generatedAt!==before',app)
         self.assertIn('새 배포 확인',app)
-        self.assertIn('아직 이전 배포가 보입니다',app)
         self.assertIn('새 수집 결과 확인',html)
 
-    def test_seed_not_passed_warning_exists(self):
-        app=(ROOT/'site/app.js').read_text(encoding='utf-8')
-        self.assertIn('이번 배포에는 좋아요 씨앗 ID가 전달되지 않음',app)
-
-    def test_review_pool_summary_is_visible(self):
-        app=(ROOT/'site/app.js').read_text(encoding='utf-8')
-        self.assertIn('검토 풀',app)
-        self.assertIn('한 채널 최대',app)
-        self.assertIn('씨앗 출처 최대',app)
-
-
-    def test_priority_and_taste_assist_ui_exists(self):
+    def test_backup_folder_feature_remains(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
         app=(ROOT/'site/app.js').read_text(encoding='utf-8')
-        css=(ROOT/'site/styles.css').read_text(encoding='utf-8')
-        self.assertIn('value="priority"',html)
-        self.assertIn('id="taste-assist"',html)
-        self.assertIn('내 취향 반영',html)
-        self.assertIn('personalizedBlend',app)
-        self.assertIn('preferenceClass',app)
-        self.assertIn('priorityPanel',app)
-        self.assertIn('.priority-strip',css)
+        for token in ['id="backup-folder"','id="backup-location"','id="backup"','id="restore"']:
+            self.assertIn(token,html)
+        for token in ['showDirectoryPicker','indexedDB.open','getDirectoryHandle','getFileHandle','createWritable','backupFallback']:
+            self.assertIn(token,app)
 
+    def test_audience_layer_remains_visible_but_compact(self):
+        html=(ROOT/'site/index.html').read_text(encoding='utf-8')
+        app=(ROOT/'site/app.js').read_text(encoding='utf-8')
+        core=(ROOT/'site/core.js').read_text(encoding='utf-8')
+        collect=(ROOT/'scripts/collect.py').read_text(encoding='utf-8')
+        self.assertIn('id="audience-filter"',html)
+        self.assertIn('검증 영상',html)
+        self.assertIn('audiencePanel',app)
+        self.assertIn('audienceInfo',core)
+        self.assertIn('audience_metrics',collect)
+        self.assertIn('load_view_tracking',collect)
 
-    def test_v17_movie_tv_gate_defaults(self):
+    def test_movie_tv_gate_and_full_history_remain(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
         core=(ROOT/'site/core.js').read_text(encoding='utf-8')
         self.assertIn('value="screen_gate" selected',html)
-        self.assertIn('value="0" selected>제한 없음 · 참고만',html)
-        self.assertIn("maxSubscribers:0",core)
-        self.assertIn("screenGateInfo",core)
+        self.assertIn('data-tab="history"',html)
+        self.assertIn('screenGateInfo',core)
+
+    def test_collection_controls_still_exist_without_cluttering_main_screen(self):
+        html=(ROOT/'site/index.html').read_text(encoding='utf-8')
+        for control in ['collect-preset','retry-round','open-actions','find-more','copy-seeds','no-harvest']:
+            self.assertIn(f'id="{control}"',html)
+        self.assertIn('class="legacy-control" hidden',html)
 
 if __name__=='__main__':
     unittest.main()
-
-# 1.8 regression checks
-def _v18_extra(self):
-    core=(ROOT/'site/core.js').read_text(encoding='utf-8')
-    app=(ROOT/'site/app.js').read_text(encoding='utf-8')
-    html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-    self.assertIn('usableDislikes',core)
-    self.assertIn('personalizedBlend',core)
-    self.assertIn('취향 데이터 좋아요',app)
-    self.assertIn('내 취향 우선',html)
-UiSourceTests.test_v18_like_dislike_learning=_v18_extra
-
-
-def _v181_backup_folder(self):
-    html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-    app=(ROOT/'site/app.js').read_text(encoding='utf-8')
-    for token in ['id="backup-folder"','id="backup-location"','백업 폴더 지정/변경']:
-        self.assertIn(token,html)
-    for token in ['showDirectoryPicker','indexedDB.open','getDirectoryHandle','getFileHandle','createWritable','backupFallback','startIn:\'documents\'']:
-        self.assertIn(token,app)
-    self.assertIn('Movie Radar',app)
-    self.assertIn('Backups',app)
-UiSourceTests.test_v181_backup_folder=_v181_backup_folder
-
-
-def _v182_dislike_reasons(self):
-    html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-    app=(ROOT/'site/app.js').read_text(encoding='utf-8')
-    core=(ROOT/'site/core.js').read_text(encoding='utf-8')
-    for token in ['id="dislike-dialog"','data-dislike-reason="not_tone"','data-dislike-reason="overused"','data-dislike-reason="weak_story"']:
-        self.assertIn(token,html)
-    for token in ['dislike_not_tone','dislike_overused','dislike_weak_story','dislike_other']:
-        self.assertIn(token,core)
-    self.assertIn("untypedDislikes",core)
-    self.assertIn("별로 이유",app)
-UiSourceTests.test_v182_dislike_reasons=_v182_dislike_reasons
-
-
-def _v19_audience_layer(self):
-    html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-    app=(ROOT/'site/app.js').read_text(encoding='utf-8')
-    core=(ROOT/'site/core.js').read_text(encoding='utf-8')
-    collect=(ROOT/'scripts/collect.py').read_text(encoding='utf-8')
-    for token in ['id="audience-filter"','강한 반응·검증 영상만','누적 500만+만']:
-        self.assertIn(token,html)
-    for token in ['audiencePanel','trackedForMomentum','시청자 반응']:
-        self.assertIn(token,app)
-    self.assertIn("audienceInfo",core)
-    self.assertIn("audience_metrics",collect)
-    self.assertIn("load_view_tracking",collect)
-UiSourceTests.test_v19_audience_layer=_v19_audience_layer
