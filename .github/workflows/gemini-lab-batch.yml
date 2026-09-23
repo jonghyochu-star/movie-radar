@@ -1,0 +1,50 @@
+name: Movie Radar Gemini Lab Batch
+
+on:
+  workflow_dispatch:
+    inputs:
+      youtube_urls:
+        description: 'YouTube URL 최대 10개 · 쉼표로 구분'
+        type: string
+        required: true
+      expected_labels:
+        description: '선택: movie_drama / not_movie_drama / unknown · URL과 같은 순서로 쉼표 구분'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Read project files
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - name: Test Gemini batch lab offline
+        run: python -m unittest tests/test_gemini_lab.py tests/test_gemini_lab_batch.py -v
+      - name: Analyze YouTube videos with Gemini
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_URLS: ${{ inputs.youtube_urls }}
+          EXPECTED_LABELS: ${{ inputs.expected_labels }}
+        run: |
+          python scripts/gemini_lab_batch.py \
+            --youtube-urls "$YOUTUBE_URLS" \
+            --expected-labels "$EXPECTED_LABELS" \
+            --out gemini-lab-batch-output
+      - name: Upload Gemini batch report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-lab-batch-report-${{ github.run_number }}
+          path: gemini-lab-batch-output
+          retention-days: 14
+          if-no-files-found: error
