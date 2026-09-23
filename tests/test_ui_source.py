@@ -3,11 +3,11 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 
 class UiSourceTests(unittest.TestCase):
-    def test_version_is_191(self):
+    def test_version_is_192(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
-        self.assertIn('version">1.9.1<',html)
-        self.assertIn('styles.css?v=1.9.1',html)
-        self.assertIn('app.js?v=1.9.1',html)
+        self.assertIn('version">1.9.2<',html)
+        self.assertIn('styles.css?v=1.9.2',html)
+        self.assertIn('app.js?v=1.9.2',html)
 
     def test_primary_navigation_is_simple_workflow(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
@@ -21,6 +21,15 @@ class UiSourceTests(unittest.TestCase):
             self.assertIn(token,app)
         self.assertIn('toggle_overused',app)
         self.assertIn('toggle_weak_story',app)
+
+    def test_like_followup_stays_on_same_card(self):
+        app=(ROOT/'site/app.js').read_text(encoding='utf-8')
+        css=(ROOT/'site/styles.css').read_text(encoding='utf-8')
+        self.assertIn('followupId',app)
+        self.assertIn('결 맞음 · 이어서 판단',app)
+        self.assertIn('해당 없거나 선택 완료 → 다음',app)
+        self.assertIn("C.needsReview(v,r)||v.id===followupId",app)
+        self.assertIn('.quality-row.followup',css)
 
     def test_candidate_is_immediately_available(self):
         core=(ROOT/'site/core.js').read_text(encoding='utf-8')
