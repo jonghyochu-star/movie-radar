@@ -4,6 +4,7 @@ No ML scores, channel country inference, scraping, transcripts, or video downloa
 from __future__ import annotations
 import re
 from collections import OrderedDict
+from audience import audience_rank
 
 VIDEO_ID = re.compile(r'^[A-Za-z0-9_-]{11}$')
 LANGUAGE = re.compile(r'^(?:[a-z]{2}|zh-Hans|zh-Hant)$')
@@ -204,7 +205,7 @@ def diverse_snapshot(items, limit):
     Views are the first ordering signal; discovery routes are interleaved only to
     avoid one search lane monopolising the snapshot.
     """
-    ordered=sorted(items,key=lambda v:(v.get('views') if isinstance(v.get('views'),(int,float)) else -1),reverse=True)
+    ordered=sorted(items,key=lambda v:(audience_rank(v),-(v.get('views') if isinstance(v.get('views'),(int,float)) else -1),str(v.get('id',''))))
     if len(ordered)<=limit:return ordered
     groups=OrderedDict()
     for v in ordered:
@@ -241,7 +242,7 @@ def _review_priority(video):
     evidence=video.get('screenKind')
     screen_rank=0 if gate & {'movie','tv'} else 1 if evidence in {'film','series'} else 2
     views=video.get('views') if isinstance(video.get('views'),(int,float)) else -1
-    return (screen_rank,-views,str(video.get('id','')))
+    return (screen_rank,audience_rank(video),-views,str(video.get('id','')))
 
 def select_review_pool(items, limit=40, per_channel_limit=3, seed_percent=25, reference_percent=10):
     """Return a bounded, channel-diverse review set.
