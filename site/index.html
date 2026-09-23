@@ -5,11 +5,11 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="description" content="영화 쇼츠 소재를 찾고, 저장하고, 제작 후보로 선별하는 개인용 작업 보드">
 <title>Movie Radar — 소재에서 제작까지</title>
-<link rel="stylesheet" href="styles.css?v=1.8.1">
-<script defer src="core.js?v=1.8.1"></script><script defer src="app.js?v=1.8.1"></script>
+<link rel="stylesheet" href="styles.css?v=1.9">
+<script defer src="core.js?v=1.9"></script><script defer src="app.js?v=1.9"></script>
 </head>
 <body>
-<header class="header"><div class="brand"><span class="brandmark">M<span>R</span></span><div><h1>Movie Radar <small class="version">1.8.2</small></h1><p>발견은 가볍게, 선택은 내 취향대로.</p></div></div><div class="header-actions"><span id="mode" class="pill">불러오는 중</span><button id="refresh" class="quiet" title="Actions 실행 뒤 GitHub Pages에 새 배포가 실제 반영될 때까지 최대 약 1분 확인합니다. YouTube 검색을 직접 실행하지는 않습니다.">새 수집 결과 확인</button></div></header>
+<header class="header"><div class="brand"><span class="brandmark">M<span>R</span></span><div><h1>Movie Radar <small class="version">1.9</small></h1><p>발견은 가볍게, 선택은 내 취향대로.</p></div></div><div class="header-actions"><span id="mode" class="pill">불러오는 중</span><button id="refresh" class="quiet" title="Actions 실행 뒤 GitHub Pages에 새 배포가 실제 반영될 때까지 최대 약 1분 확인합니다. YouTube 검색을 직접 실행하지는 않습니다.">새 수집 결과 확인</button></div></header>
 <main>
 <section class="hero"><div><p class="eyebrow">YOUR NEXT STORY</p><h2>다음 이야기를 찾는 곳.</h2><p>조회수와 채널 규모를 비교하고, 마음에 남는 장면을 제작 후보로 모으세요.</p></div><div class="hero-note"><strong>좋아요 ≠ 바로 제작</strong><span>저장한 뒤, 한 번 더 골라도 됩니다.</span></div></section>
 <div id="notice" class="notice" role="status"></div>
@@ -24,13 +24,14 @@
 <section class="toolbar">
 <label class="search"><span class="sr">검색</span><input id="search" type="search" placeholder="영상 제목 · 내 제목 · 메모 검색"></label>
 <label>정렬<select id="sort" title="내 취향 우선은 영화·드라마 근거를 먼저 지키고 좋아요·별로 기록을 순서에 반영합니다. 후보를 자동 제외하지 않습니다."><option value="priority" selected>내 취향 우선</option><option value="views">조회수 높은 순</option><option value="ratio">조회/구독 배율순</option><option value="recent">업로드 최신순</option><option value="saved">최근 저장순</option></select></label>
-<label id="views-label">최소 조회수<select id="min-views" title="이 조회수보다 낮은 영상은 현재 화면에서 숨깁니다. 수집 자체를 바꾸지는 않습니다."><option value="0">제한 없음</option><option value="100000" selected>10만 이상</option><option value="500000">50만 이상</option><option value="1000000">100만 이상</option></select></label>
+<label id="views-label">최소 조회수<select id="min-views" title="시청자 반응 게이트와 별개의 보조 화면 필터입니다. 1.9 기본값은 제한 없음입니다."><option value="0" selected>제한 없음 · 반응 게이트 사용</option><option value="100000">10만 이상</option><option value="500000">50만 이상</option><option value="1000000">100만 이상</option><option value="3000000">300만 이상</option><option value="5000000">500만 이상</option></select></label>
 <button id="layout" class="quiet" title="한 장씩 보기와 여러 장 목록 보기를 전환합니다.">목록으로 보기</button>
 <button id="add-link" class="quiet" title="직접 발견한 YouTube 영상 링크를 좋아요 보관함에 저장합니다.">링크 직접 저장</button>
 </section>
 <section id="filter-panel" class="filter-panel" aria-label="소재 필터">
-<div class="filter-heading"><strong>찾을 소재의 기준</strong><div><button id="reset-filters" class="link" title="1.8 추천 기준: 구독자 수는 제한하지 않고, 영화·드라마 수집 게이트를 통과한 후보 중 조회수 10만 이상을 우선 표시합니다.">추천 기준</button> <button id="broad-filters" class="link" title="수집된 후보 자체를 확인하기 위해 구독자·조회수·영상 종류·언어 표시 제한을 넓힙니다. 수집 설정은 바꾸지 않습니다.">전체 후보 보기</button></div></div>
+<div class="filter-heading"><strong>찾을 소재의 기준</strong><div><button id="reset-filters" class="link" title="1.9 추천 기준: 영화·드라마 게이트 + 시청자 반응 검증을 기본 적용합니다. 구독자 수와 평생 평균 조회속도는 우선순위에 쓰지 않습니다.">추천 기준</button> <button id="broad-filters" class="link" title="수집된 후보 자체를 확인하기 위해 구독자·조회수·영상 종류·언어 표시 제한을 넓힙니다. 수집 설정은 바꾸지 않습니다.">전체 후보 보기</button></div></div>
 <div class="filter-row">
+<label>시청자 반응<select id="audience-filter" title="1.9 핵심 필터입니다. 게시 후 경과 구간별 누적 조회수, 누적 500만/1000만, 반복 관찰한 실제 조회 증가량을 사용합니다. 전체 나이로 나눈 평생 평균 조회속도는 사용하지 않습니다."><option value="validated" selected>강한 반응·검증 영상만</option><option value="surging">지금 급상승만</option><option value="proven">누적 500만+만</option><option value="all">전체 후보 · 진단용</option></select></label>
 <label>최대 구독자<select id="max-subs" title="1.8에서도 구독자 수를 수집 우선순위로 쓰지 않습니다. 필요할 때 화면에서만 제한할 수 있습니다."><option value="0" selected>제한 없음 · 참고만</option><option value="5000">5천 이하</option><option value="10000">1만 이하</option><option value="50000">5만 이하</option></select></label>
 <label>영상 종류<select id="content-filter" title="기본값은 YouTube Movies/TV 주제 검색 또는 영화·드라마 메타데이터 근거를 통과한 후보입니다. 실제 장면을 AI가 본 판정은 아닙니다."><option value="screen_gate" selected>영화·드라마 수집 게이트 통과</option><option value="screen">메타데이터 단서 확실</option><option value="film">영화 단서만</option><option value="all">전체 · 진단용</option></select></label>
 <label>영상 길이<select id="duration-preset" title="수집된 편집 영상의 길이 범위를 화면에서 제한합니다."><option value="0:180">전체 수집범위 · 3분 이하</option><option value="0:60">1분 이하</option><option value="30:90">30초~1분 30초</option><option value="60:180">1~3분</option><option value="120:180">2~3분</option><option value="custom">직접 입력</option></select></label>
@@ -52,7 +53,7 @@
 <label class="balance-check"><input id="balance" type="checkbox" checked title="언어와 채널이 한쪽으로 몰리지 않게 현재 목록의 표시 순서를 섞습니다.">언어·채널 골고루 보기 <span>켜면 선택한 정렬을 바탕으로 번갈아 표시합니다. 전체 조회수 내림차순은 아닙니다.</span></label>
 <label class="balance-check taste-assist"><input id="taste-assist" type="checkbox" checked title="현재 브라우저의 좋아요와 별로를 함께 비교해 같은 채널·이야기 유형·탐색 경로의 적중 여부를 순서에 반영합니다. 한국 영화/일반 영상/비영화 제외는 취향 학습에서 제외합니다.">내 취향 반영 <span>좋아요는 긍정 신호로, 별로 중 ‘내 결 아님’만 취향 반대 신호로 사용합니다. 많이 본 소재·전개 약함·기타·기존 이유 미분류 별로는 취향 반대 학습에서 제외합니다.</span></label>
 <div id="filter-summary" class="filter-summary" role="status"></div>
-<p class="filter-footnote">필터는 소재 탐색·원작 확인 필요에만 적용합니다. 1.8의 기본 수집은 영화/TV 주제 게이트를 먼저 사용하며, 구독자 수는 참고 지표일 뿐 기본 수집 우선순위에 사용하지 않습니다. 영상 길이는 편집본 길이입니다.</p>
+<p class="filter-footnote">필터는 소재 탐색·원작 확인 필요에만 적용합니다. 1.9는 영화/TV 주제 게이트 뒤에 시청자 반응 검증을 둡니다. 12시간 20만, 24시간 50만, 48시간 100만, 3일 200만, 5일 300만, 7일 500만을 초기 기준으로 두고 누적 500만+는 오래된 영상도 검증된 소재로 봅니다. 반복 수집이 쌓이면 Δ12h·Δ24h·Δ7d 실제 증가량도 사용합니다. 평생 평균 조회속도는 사용하지 않습니다.</p>
 </section>
 <section id="collection-panel" class="collection-panel">
 <div class="filter-heading"><strong>다음 수집 계획</strong><span class="muted">표시 언어와 별개입니다.</span></div>
@@ -69,7 +70,7 @@
 <section id="content" aria-live="polite"></section>
 <div class="pager"><button id="previous" class="quiet">이전 묶음</button><span id="page-label"></span><button id="next" class="primary">다음 20개</button><button id="revisit" class="quiet">나중에 넘긴 소재 다시 보기</button></div>
 <section class="storagebar"><div><strong>내 선택은 이 브라우저에 저장됩니다.</strong><p>다른 PC·브라우저와 자동으로 동기화되지 않습니다. 중요한 선택은 백업해 두세요.<br><span id="backup-location" class="backup-location">백업 위치 확인 중…</span></p></div><div><button id="backup-folder" title="문서 같은 기준 폴더를 한 번 고르면 그 안에 Movie Radar/Backups 폴더를 만들고 이후 백업을 그곳에 저장합니다. 지원하지 않는 브라우저는 다운로드 폴더 방식을 사용합니다.">백업 폴더 지정/변경</button><button id="backup" title="좋아요·별로·원작 확인·제작 상태·메모 같은 내 기록을 지정한 백업 폴더에 JSON 파일로 저장합니다. 폴더를 지정하지 않았거나 지원되지 않으면 다운로드 폴더에 저장합니다.">내 기록 백업</button><button id="restore" title="이전에 백업한 내 기록 JSON 파일을 현재 브라우저 기록과 합칩니다.">백업 복원</button><input type="file" id="import-file" accept=".json,application/json" hidden></div></section>
-<footer><span id="updated">정보를 확인하고 있습니다.</span><p>Movie Radar의 평가는 YouTube 좋아요·구독에 영향을 주지 않습니다. 버전 1.8.2 · 별로 이유를 분리해 취향 신호와 신선도·완성도 문제를 섞지 않습니다. 영화 단서는 제목·설명 등의 규칙 분석이며 영상 자체를 검증한 결과가 아닙니다. 원작 제작국·감동결·Shorts 여부는 직접 확인해 주세요. 한국 영화로 표시한 영상은 추천·보관함·제작 후보에서 숨기고 평가 기록에 남깁니다.</p><a href="privacy.html">개인정보·이용 안내</a> · <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube 이용약관</a> · <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google 개인정보처리방침</a> · <button id="clear" class="link danger">이 앱의 내 기록 삭제</button></footer>
+<footer><span id="updated">정보를 확인하고 있습니다.</span><p>Movie Radar의 평가는 YouTube 좋아요·구독에 영향을 주지 않습니다. 버전 1.9 · 영화·드라마 게이트 앞뒤에 시청자 반응 검증을 추가했습니다. 게시 구간별 누적 조회수·누적 500만/1000만·실제 반복 관찰 증가량을 분리하며 평생 평균 조회속도는 쓰지 않습니다. 영화 단서는 제목·설명 등의 규칙 분석이며 영상 자체를 검증한 결과가 아닙니다. 원작 제작국·감동결·Shorts 여부는 직접 확인해 주세요. 한국 영화로 표시한 영상은 추천·보관함·제작 후보에서 숨기고 평가 기록에 남깁니다.</p><a href="privacy.html">개인정보·이용 안내</a> · <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube 이용약관</a> · <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google 개인정보처리방침</a> · <button id="clear" class="link danger">이 앱의 내 기록 삭제</button></footer>
 </main>
 <div id="toast" role="status" class="toast" hidden></div>
 <dialog id="dislike-dialog"><h2>왜 별로였나요?</h2><p>이유에 따라 학습 용도가 달라집니다. <strong>‘내 결 아님’만 취향 반대 신호</strong>로 사용합니다.</p><div class="dislike-reasons"><button data-dislike-reason="not_tone"><strong>내 결 아님</strong><span>감동 방향·관계·정서 자체가 내가 원하는 결과 다름</span></button><button data-dislike-reason="overused"><strong>많이 본 소재</strong><span>결은 맞지만 이미 너무 익숙하거나 다른 채널에서 많이 봄</span></button><button data-dislike-reason="weak_story"><strong>전개 약함</strong><span>결은 맞을 수 있지만 재미·전환·완결성이 약함</span></button><button data-dislike-reason="other"><strong>기타</strong><span>위 세 가지로 설명하기 어려움</span></button></div><div class="dialogbuttons"><button type="button" id="dislike-cancel">취소</button></div></dialog>
