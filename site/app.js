@@ -216,13 +216,13 @@ function renderCard(v){
  const toneNo=r.rating==='dislike'
    ? '<button class="tone-no selected" data-action="unrate" title="결 아님 평가를 취소합니다.">결 아님 ✓</button>'
    : '<button class="tone-no" data-action="dislike_not_tone" title="정서·관계·이야기 방향 자체가 내 취향과 다를 때 누릅니다.">결 아님</button>';
+ const isFollowup=['review','discover'].includes(tab)&&followupId===v.id&&followupDraft;
  let candidate='';
  if(isFollowup){
    candidate=`<button class="candidate ${followupDraft.candidate?'selected':''}" data-action="followup_candidate" title="세부 판단과 함께 제작 후보로 저장합니다.">${followupDraft.candidate?'★ 제작 후보 ✓':'☆ 제작 후보'}</button>`;
- }else if(r.stage==='candidate')candidate='<button class="candidate selected" data-action="uncandidate" title="제작 후보에서 빼되 결 맞음 평가는 유지합니다.">★ 제작 후보 ✓</button>';
+ }else if(r.stage==='candidate')candidate='<button class="candidate selected" data-action="uncandidate" title="제작 후보에서 빼되 결 맞음 평가는 유지됩니다.">★ 제작 후보 ✓</button>';
  else if(r.stage==='done')candidate='<button class="candidate selected" data-action="reopen">제작 후보로 되돌리기</button>';
  else candidate='<button class="candidate" data-action="candidate" title="실제로 만들고 싶은 소재입니다. 누르면 결 맞음도 함께 저장됩니다.">☆ 제작 후보</button>';
- const isFollowup=['review','discover'].includes(tab)&&followupId===v.id&&followupDraft;
  const followupOverused=isFollowup?Boolean(followupDraft.overused):r.freshness==='overused';
  const followupWeak=isFollowup?Boolean(followupDraft.weak):r.story==='weak';
  const quality=(r.rating==='like'||isFollowup)?`<div class="quality-row${isFollowup?' followup':''}"><span>${isFollowup?'결 맞음 · 세부 판단 후 저장':'결 맞음 세부'}</span><button class="${followupOverused?'selected':''}" data-action="${isFollowup?'followup_overused':'toggle_overused'}">많이 본 소재${followupOverused?' ✓':''}</button><button class="${followupWeak?'selected':''}" data-action="${isFollowup?'followup_weak':'toggle_weak_story'}">전개 약함${followupWeak?' ✓':''}</button>${isFollowup?'<button class="followup-done" data-action="followup_done">선택 완료 · 다음 영상</button>':''}</div>`:'';
