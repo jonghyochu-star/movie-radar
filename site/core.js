@@ -165,13 +165,14 @@
     return {ok:false,label:'영화·드라마 게이트 미확인',topics:[]};
   }
   function audienceInfo(v={}) {
-    const a=v&&typeof v.audience==='object'&&v.audience?v.audience:{};
+    const hasAudience=Boolean(v&&typeof v.audience==='object'&&v.audience);
+    const a=hasAudience?v.audience:{};
     const status=['surging','mega','proven','strong','watch'].includes(a.status)?a.status:'unknown';
     const views=Number.isFinite(v.views)?v.views:0;
     const fallbackProven=views>=5000000;
     return {
       status:status==='unknown'&&fallbackProven?'proven':status,
-      validated:typeof a.validated==='boolean'?a.validated:fallbackProven,
+      validated:hasAudience?(typeof a.validated==='boolean'?a.validated:fallbackProven):true,
       surging:Boolean(a.surging),
       fastStrong:Boolean(a.fastStrong),
       cumulativeProven:typeof a.cumulativeProven==='boolean'?a.cumulativeProven:fallbackProven,
