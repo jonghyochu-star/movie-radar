@@ -81,13 +81,13 @@ def summarize(rows: list[dict]) -> dict:
         "averageRoughPaidUsd":round(total_cost/len(rows),6) if rows else 0,
     }
 
-def write_report(out_dir: Path, rows: list[dict], model: str) -> None:
+def write_report(out_dir: Path, rows: list[dict], model: str, batch_error: str = "") -> None:
     out_dir.mkdir(parents=True,exist_ok=True)
     summary=summarize(rows)
     payload={
         "schema":1,"labVersion":"0.2",
         "generatedAt":datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00","Z"),
-        "model":model,"summary":summary,"rows":rows,
+        "model":model,"summary":summary,"rows":rows,"batchError":batch_error or None,
     }
     (out_dir/"gemini-lab-batch.json").write_text(json.dumps(payload,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
     lines=["# Movie Radar Gemini Lab v0.2","",f"- 모델: `{model}`",f"- 영상: **{summary['videos']}개**"]
@@ -131,17 +131,27 @@ def main(argv=None) -> int:
     key=os.environ.get("GEMINI_API_KEY","").strip()
     if not key: raise LabError("GEMINI_API_KEY Secret이 없습니다.")
     rows=[]
+    out_dir=Path(args.out)
     for i,(url,expected) in enumerate(zip(urls,labels),1):
-        print(f"[{i}/{len(urls)}] Gemini 분석 시작: {youtube_id(url)}")
-        analysis,usage=call_gemini(key,url,args.model)
+        print(f"[{i}/{len(urls)}] Gemini 분석 시작: {youtube_id(url)}", flush=True)
+        try:
+            analysis,usage=call_gemini(key,url,args.model)
+        except LabError as exc:
+            message=str(exc)
+            write_report(out_dir,rows,args.model,message)
+            (out_dir/"gemini-lab-batch-error.txt").write_text(
+                f"{i}번째 영상({youtube_id(url)})에서 중단: {message}\n"
+                f"완료된 영상: {len(rows)}/{len(urls)}\n", encoding="utf-8")
+            print(f"배치 중단: {message} / 완료 {len(rows)}/{len(urls)}", flush=True)
+            return 3
         rows.append({
             "videoId":youtube_id(url),"videoUrl":url,
             "analysis":analysis,
             "comparison":comparison(expected,analysis.get("screen_scene_decision","uncertain")),
             "usage":usage,"costEstimate":estimate_cost_usd(usage),
         })
-        print(f"[{i}/{len(urls)}] 판별 {analysis.get('screen_scene_decision')} / {analysis.get('content_type')} / {analysis.get('confidence')}")
-    write_report(Path(args.out),rows,args.model)
+        write_report(out_dir,rows,args.model)
+        print(f"[{i}/{len(urls)}] 판별 {analysis.get('screen_scene_decision')} / {analysis.get('content_type')} / {analysis.get('confidence')}", flush=True)
     s=summarize(rows)
     print("Gemini Lab batch 완료:",s["videos"],"개 / 비교",s["comparable"],"개 / 정답",s["correct"])
     print("대략 유료단가 총 비용(참고): $%.6f" % s["roughPaidUsd"])
