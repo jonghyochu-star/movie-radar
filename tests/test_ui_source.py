@@ -22,15 +22,17 @@ class UiSourceTests(unittest.TestCase):
         self.assertIn('toggle_overused',app)
         self.assertIn('toggle_weak_story',app)
 
-    def test_like_followup_stays_on_same_card(self):
+    def test_like_followup_stays_until_one_detail_then_advances(self):
         app=(ROOT/'site/app.js').read_text(encoding='utf-8')
         css=(ROOT/'site/styles.css').read_text(encoding='utf-8')
         self.assertIn('followupId',app)
         self.assertIn('followupDraft',app)
-        self.assertIn('결 맞음 · 세부 판단 후 저장',app)
-        self.assertIn('선택 완료 · 다음 영상',app)
+        self.assertIn('결 맞음 · 하나를 고르면 바로 다음 영상',app)
+        self.assertIn('많이 본 소재',app)
+        self.assertIn('전개 약함',app)
+        self.assertIn('해당 없음 → 다음',app)
+        self.assertIn("['followup_overused','followup_weak','followup_candidate','followup_done']",app)
         self.assertIn("C.needsReview(v,r)||v.id===followupId",app)
-        self.assertIn("state=C.apply(state,v,'like')",app)
         self.assertIn('.quality-row.followup',css)
 
     def test_candidate_is_immediately_available(self):
