@@ -144,3 +144,27 @@ test('1.8 personalized blend keeps every candidate once',()=>{
  const items=[{id:'a1',channelId:'a'},{id:'a2',channelId:'a'},{id:'b1',discoveryRoutes:['familiar']},{id:'c1',discoveryRoutes:['expand']},{id:'d1',channelId:'d',discoveryRoutes:['open']}];
  const out=C.personalizedBlend(items,profile,true);assert.equal(out.length,items.length);assert.equal(new Set(out.map(x=>x.id)).size,items.length);assert.equal(out.at(-1).id,'d1');
 });
+
+
+test('1.8.2 dislike reasons migrate without inventing reasons',()=>{
+ const old=C.normalize({schema:1,records:{[v.id]:{rating:'dislike'}}}).records[v.id];
+ assert.equal(old.rating,'dislike');assert.equal(old.dislikeReason,null);
+ let s=C.apply(C.blank(),v,'dislike_not_tone');assert.equal(s.records[v.id].dislikeReason,'not_my_tone');
+ s=C.apply(s,v,'unrate');assert.equal(s.records[v.id].rating,null);assert.equal(s.records[v.id].dislikeReason,null);
+});
+test('1.8.2 only explicit not-my-tone dislikes teach negative taste',()=>{
+ const a={...fvideo,id:'LikeVideo01',channelId:'a',discoveryRoutes:['familiar']};
+ const b={...fvideo,id:'BadVideo0001',channelId:'b',discoveryRoutes:['open']};
+ const c={...fvideo,id:'Overused0001',channelId:'c',discoveryRoutes:['expand']};
+ const d={...fvideo,id:'LegacyBad001',channelId:'d',discoveryRoutes:['work']};
+ const records={
+  LikeVideo01:{rating:'like'},
+  BadVideo0001:{rating:'dislike',dislikeReason:'not_my_tone'},
+  Overused0001:{rating:'dislike',dislikeReason:'overused'},
+  LegacyBad001:{rating:'dislike'}
+ };
+ const p=C.buildTasteProfile([a,b,c,d],records);
+ assert.equal(p.likedCount,1);assert.equal(p.dislikedCount,3);assert.equal(p.usableDislikes,1);
+ assert.equal(p.disliked.channels.b,1);assert.equal(p.disliked.channels.c,undefined);assert.equal(p.disliked.channels.d,undefined);
+ assert.equal(p.dislikeReasonCounts.overused,1);assert.equal(p.untypedDislikes,1);
+});
