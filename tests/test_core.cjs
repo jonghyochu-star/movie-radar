@@ -32,7 +32,7 @@ test('unknown subscriber only rejected when cap is active',()=>{const f={...defa
 test('unknown subscriber allowed only without cap',()=>assert(C.matchesFilters({...fvideo,subscribers:null},{},{...defaults(),maxSubscribers:0})));
 test('zero subscribers valid but no ratio',()=>{assert(C.matchesFilters({...fvideo,subscribers:0},{},defaults()));assert.equal(C.ratio({...fvideo,subscribers:0}),null);});
 test('duration range inclusive and editable',()=>{const f={...defaults(),minSeconds:30,maxSeconds:90};for(const d of [30,90])assert(C.matchesFilters({...fvideo,durationSeconds:d},{},f));for(const d of [29,91,null])assert(!C.matchesFilters({...fvideo,durationSeconds:d},{},f));});
-test('minimum view boundary',()=>{assert(C.matchesFilters({...fvideo,views:100000},{},defaults()));assert(!C.matchesFilters({...fvideo,views:99999},{},defaults()));});
+test('minimum view boundary',()=>{const f={...defaults(),minViews:100000};assert(C.matchesFilters({...fvideo,views:100000},{},f));assert(!C.matchesFilters({...fvideo,views:99999},{},f));});
 test('default languages remain multilingual',()=>{assert(C.matchesFilters({...fvideo,language:'es'},{},defaults()));assert(C.matchesFilters({...fvideo,language:'ja'},{},defaults()));});
 test('Hindi Arabic not shown by default including scripts',()=>{for(const lang of ['hi','ar','ar-script','indic-script'])assert(!C.matchesFilters({...fvideo,language:lang},{},defaults()));});
 test('explicitly enabling languages works',()=>{const f={...defaults(),languages:['ar','hi']};assert(C.matchesFilters({...fvideo,language:'ar'},{},f));assert(C.matchesFilters({...fvideo,language:'hi'},{},f));});
@@ -50,7 +50,7 @@ test('media confirmation does not confirm original country',()=>{const s=C.apply
 test('v11 migrations preserve candidates notes',()=>{const r={schema:1,records:{[v.id]:{rating:'like',origin:'non_korean',stage:'candidate',memo:'keep'}}};const x=C.normalize(r).records[v.id];assert.equal(x.media,'unknown');assert.equal(x.stage,'candidate');assert.equal(x.memo,'keep');assert(C.ready(v,x));});
 test('backup includes media no metadata',()=>{const data=C.exportData(C.apply(C.blank(),v,'media_no'));assert.equal(data.records[v.id].media,'not_screen');assert.equal(data.records[v.id].cache,undefined);});
 test('filter preferences sanitize',()=>{const f=C.normalizeFilters({maxSubscribers:NaN,minSeconds:180,maxSeconds:10,languages:['xx','en','en','__proto__'],balance:'yes'});assert.equal(f.maxSubscribers,0);assert.equal(f.minSeconds,0);assert.equal(f.maxSeconds,180);assert.deepEqual(f.languages,['en']);assert.equal(f.balance,true);});
-test('funnel shows which restriction causes zero',()=>{const items=[fvideo,{...fvideo,id:'AbCdEfGhI02',subscribers:20000},{...fvideo,id:'AbCdEfGhI03',language:'hi'},{...fvideo,id:'AbCdEfGhI04',screenKind:'unknown'}];const n=C.filterCounts(items,{},defaults());assert.deepEqual(n,{total:4,content:3,subscribers:3,language:2,duration:2,views:2,route:2,format:2});});
+test('funnel shows which restriction causes zero',()=>{const items=[fvideo,{...fvideo,id:'AbCdEfGhI02',subscribers:20000},{...fvideo,id:'AbCdEfGhI03',language:'hi'},{...fvideo,id:'AbCdEfGhI04',screenKind:'unknown'}];const n=C.filterCounts(items,{},defaults());assert.deepEqual(n,{total:4,content:3,audience:3,subscribers:3,language:2,duration:2,views:2,route:2,format:2});});
 test('language balancing interleaves, does not lose or duplicate',()=>{const items=[{id:'1',language:'en',languageSource:'title',channelId:'a'},{id:'2',language:'en',languageSource:'title',channelId:'a'},{id:'3',language:'en',languageSource:'title',channelId:'b'},{id:'4',language:'ja',languageSource:'title',channelId:'c'},{id:'5',language:'ja',languageSource:'title',channelId:'c'}];const result=C.balanceVideos(items,['en','ja']);assert.deepEqual(result.map(v=>v.id),['1','4','3','5','2']);assert.equal(new Set(result.map(v=>v.id)).size,items.length);});
 test('language balancing handles empty, unknown, missing channel',()=>{assert.deepEqual(C.balanceVideos([]),[]);const items=[{id:'1'},{id:'2',language:'ar'}];assert.equal(C.balanceVideos(items).length,2);});
 test('display filters do not mutate records',()=>{const s=C.apply(C.blank(),v,'like');const before=JSON.stringify(s);C.matchesFilters(fvideo,s.records[v.id],defaults());C.filterCounts([fvideo],s.records,defaults());assert.equal(JSON.stringify(s),before);});
@@ -167,4 +167,21 @@ test('1.8.2 only explicit not-my-tone dislikes teach negative taste',()=>{
  assert.equal(p.likedCount,1);assert.equal(p.dislikedCount,3);assert.equal(p.usableDislikes,1);
  assert.equal(p.disliked.channels.b,1);assert.equal(p.disliked.channels.c,undefined);assert.equal(p.disliked.channels.d,undefined);
  assert.equal(p.dislikeReasonCounts.overused,1);assert.equal(p.untypedDislikes,1);
+});
+
+
+test('1.9 audience filter uses collector validation and never lifetime average',()=>{
+ const strong={...fvideo,audience:{status:'strong',validated:true,surging:false,fastStrong:true,cumulativeProven:false,mega:false,ageHours:20,floorViews:500000,deltas:{},lifetimeAverageUsed:false}};
+ const weak={...fvideo,id:'AbCdEfGhI09',audience:{status:'watch',validated:false,surging:false,fastStrong:false,cumulativeProven:false,mega:false,ageHours:20,floorViews:500000,deltas:{},lifetimeAverageUsed:false}};
+ assert(C.matchesFilters(strong,{},defaults()));
+ assert(!C.matchesFilters(weak,{},defaults()));
+ assert(C.matchesFilters(weak,{},{...defaults(),audience:'all'}));
+ assert.equal(C.audienceInfo(strong).lifetimeAverageUsed,false);
+});
+test('1.9 audience modes separate surging and cumulative proof',()=>{
+ const surge={...fvideo,audience:{status:'surging',validated:true,surging:true,cumulativeProven:false,mega:false}};
+ const proven={...fvideo,id:'AbCdEfGhI08',views:6000000,audience:{status:'proven',validated:true,surging:false,cumulativeProven:true,mega:false}};
+ assert(C.matchesFilters(surge,{},{...defaults(),audience:'surging'}));
+ assert(!C.matchesFilters(proven,{},{...defaults(),audience:'surging'}));
+ assert(C.matchesFilters(proven,{},{...defaults(),audience:'proven'}));
 });
