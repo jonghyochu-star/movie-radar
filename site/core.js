@@ -49,7 +49,7 @@
     switch(action) {
       case 'like': r.rating='like'; r.dislikeReason=null; break;
       case 'dislike':
-      case 'dislike_not_tone': r.rating='dislike'; r.dislikeReason='not_my_tone'; r.freshness=null; r.story=null; break;
+      case 'dislike_not_tone': r.rating='dislike'; r.dislikeReason='not_my_tone'; r.freshness=null; r.story=null; if(r.stage==='candidate')r.stage=null; break;
       // Backward-compatible actions now keep tone and quality separate.
       case 'dislike_overused': r.rating='like'; r.dislikeReason=null; r.freshness='overused'; break;
       case 'dislike_weak_story': r.rating='like'; r.dislikeReason=null; r.story='weak'; break;
@@ -67,7 +67,7 @@
       case 'reopen':
         if(formatOf(r)==='not_short'||mediaOf(r)==='not_screen'||originOf(r)==='korean') throw Error('제외된 영상은 제작 후보로 되돌릴 수 없습니다.');
         r.stage='candidate'; break;
-      case 'unrate': r.rating=null; r.dislikeReason=null; r.freshness=null; r.story=null; break;
+      case 'unrate': r.rating=null; r.dislikeReason=null; r.freshness=null; r.story=null; if(r.stage==='candidate')r.stage=null; break;
       case 'origin_foreign': r.origin='non_korean'; break;
       case 'origin_korean': r.origin='korean'; break;
       case 'origin_reset': r.origin='unknown'; break;
