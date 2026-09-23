@@ -16,7 +16,7 @@ class AudienceTests(unittest.TestCase):
         self.assertEqual(a.floor_views(18),500000)
         self.assertEqual(a.floor_views(36),1000000)
         self.assertEqual(a.floor_views(60),2000000)
-        self.assertEqual(a.floor_views(100),3000000)
+        self.assertEqual(a.floor_views(100),5000000)
         self.assertEqual(a.floor_views(150),5000000)
         self.assertEqual(a.floor_views(5000),5000000)
 
