@@ -261,7 +261,7 @@ def load_prior_history(repository, limit=RECENT_HISTORY_LIMIT, fp_limit=RECENT_F
     url=prior_pages_url(repository)
     if not url:return set(), [], None
     try:
-        req=Request(url+'?t='+str(int(time.time())),headers={'Accept':'application/json','User-Agent':'MovieRadar/1.7'})
+        req=Request(url+'?t='+str(int(time.time())),headers={'Accept':'application/json','User-Agent':'MovieRadar/1.9'})
         with urlopen(req,timeout=12) as response:data=json.load(response)
         ids=[];fps=[]
         if isinstance(data,dict):
@@ -326,7 +326,7 @@ def collect(api, c, rotation=0, now=None, collection_preset='english_focus', cus
     # Re-check recent tracked candidates with cheap videos.list calls.
     # We never divide lifetime views by total age. A tracked video can be promoted once
     # if its current views / observed deltas later satisfy the audience-response gate.
-    track_ids=[vid for vid,row in tracking.items() if not row.get('promotedAt')][:TRACK_LIMIT]
+    track_ids=[vid for vid,row in tracking.items() if ID.fullmatch(vid) and not row.get('promotedAt')][:TRACK_LIMIT]
     if track_ids:
         for batch in chunks(track_ids):
             for v in api.get('videos',part='snippet,statistics,contentDetails,status,topicDetails',id=','.join(batch)).get('items',[]):
