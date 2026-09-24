@@ -97,6 +97,68 @@ class GeminiLabTests(unittest.TestCase):
         self.assertEqual(open_mock.call_count, 2)
         sleep_mock.assert_called_once()
 
+
+    def test_http_429_daily_quota_does_not_retry(self):
+        body = io.BytesIO(json.dumps({
+            "error": {
+                "code": "quota_exceeded",
+                "message": "Daily quota exceeded"
+            }
+        }).encode("utf-8"))
+        exhausted = M.HTTPError(
+            "https://example.invalid", 429, "Too Many Requests",
+            {"Retry-After": "60"}, body
+        )
+        with mock.patch.object(M, "urlopen", side_effect=exhausted) as open_mock, \
+             mock.patch.object(M.time, "sleep") as sleep_mock:
+            with self.assertRaisesRegex(M.LabError, "일일 사용 한도"):
+                M.call_gemini("secret", "https://youtu.be/AbCdEfGhI01")
+        self.assertEqual(open_mock.call_count, 1)
+        sleep_mock.assert_not_called()
+
+    def test_http_429_rate_limit_retries_then_succeeds(self):
+        result = {
+            "screen_scene_decision": "no",
+            "content_type": "real_life_or_vlog",
+            "confidence": "high",
+            "why": ["실제 인물 촬영"],
+            "relationship": [],
+            "story_arc": "불명확",
+            "emotional_turn": False,
+            "turn_timestamp": "",
+            "story_completeness": "moment_only",
+            "aftertaste": "weak",
+            "summary_ko": "실제 인물 영상이다.",
+            "story_features": [],
+        }
+        response = {
+            "status": "completed",
+            "steps": [{"type": "model_output", "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]}],
+            "usage": {},
+        }
+        class FakeResponse:
+            def __enter__(self):
+                return io.StringIO(json.dumps(response, ensure_ascii=False))
+            def __exit__(self, *args):
+                return False
+
+        body = io.BytesIO(json.dumps({
+            "error": {
+                "code": "rate_limit_exceeded",
+                "message": "Per-minute rate limit exceeded"
+            }
+        }).encode("utf-8"))
+        transient = M.HTTPError(
+            "https://example.invalid", 429, "Too Many Requests",
+            {"Retry-After": "7"}, body
+        )
+        with mock.patch.object(M, "urlopen", side_effect=[transient, FakeResponse()]) as open_mock, \
+             mock.patch.object(M.time, "sleep") as sleep_mock:
+            got, usage = M.call_gemini("secret", "https://youtu.be/AbCdEfGhI01")
+        self.assertEqual(got["screen_scene_decision"], "no")
+        self.assertEqual(open_mock.call_count, 2)
+        sleep_mock.assert_called_once_with(7)
+
     def test_report_contains_no_api_key(self):
         result = {
             "screen_scene_decision": "yes", "content_type": "feature_film_scene", "confidence": "high",
