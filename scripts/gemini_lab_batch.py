@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Movie Radar Gemini Lab v0.2
+"""Movie Radar Gemini Lab v0.3
 
 Batch blind evaluation for up to 10 public YouTube videos.
 Expected labels are compared only AFTER Gemini analysis and are never sent to the model.
@@ -87,12 +87,12 @@ def write_report(out_dir: Path, rows: list[dict], model: str, batch_error: str =
     out_dir.mkdir(parents=True,exist_ok=True)
     summary=summarize(rows)
     payload={
-        "schema":1,"labVersion":"0.2",
+        "schema":1,"labVersion":"0.3",
         "generatedAt":datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00","Z"),
         "model":model,"summary":summary,"rows":rows,"batchError":batch_error or None,
     }
     (out_dir/"gemini-lab-batch.json").write_text(json.dumps(payload,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
-    lines=["# Movie Radar Gemini Lab v0.2","",f"- 모델: `{model}`",f"- 영상: **{summary['videos']}개**"]
+    lines=["# Movie Radar Gemini Lab v0.3","",f"- 모델: `{model}`",f"- 영상: **{summary['videos']}개**"]
     if summary["comparable"]:
         lines += [
             f"- 블라인드 비교: **{summary['correct']}/{summary['comparable']} 정답**",
@@ -118,7 +118,17 @@ def write_report(out_dir: Path, rows: list[dict], model: str, batch_error: str =
     for i,r in enumerate(rows,1):
         a=r["analysis"]
         feats=", ".join(a.get("preference_features") or []) or "없음"
-        lines += [f"### {i}. {r['videoId']}",f"- 요약: {a.get('summary_ko','')}",f"- 관계: {', '.join(a.get('relationship') or []) or '미확인'}",f"- 흐름: {a.get('story_arc')}",f"- 특징: {feats}",""]
+        payoff=", ".join(a.get("emotional_payoff") or []) or "불명확"
+        lines += [
+            f"### {i}. {r['videoId']}",
+            f"- 요약: {a.get('summary_ko','')}",
+            f"- 핵심 관계: {a.get('primary_relationship','미확인')} · 전체 관계: {', '.join(a.get('relationship') or []) or '미확인'}",
+            f"- 이야기 패턴: {a.get('story_pattern','불명확')} · 흐름: {a.get('story_arc')}",
+            f"- 완결성: {a.get('story_completeness')} · 시작 맥락 충분: {a.get('setup_clear')} · 결말/보상 명확: {a.get('payoff_clear')}",
+            f"- 감정 보상: {payoff} · 여운: {a.get('aftertaste')}",
+            f"- 시각 의존도: {a.get('visual_dependency','uncertain')} · 자막만 1차 분석: {a.get('transcript_sufficiency','uncertain')}",
+            f"- 특징: {feats}",""
+        ]
     (out_dir/"gemini-lab-batch.md").write_text("\n".join(lines)+"\n",encoding="utf-8")
 
 def main(argv=None) -> int:
