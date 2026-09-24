@@ -11,6 +11,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from gemini_lab import (
 )
 
 LABELS={"unknown","movie_drama","not_movie_drama"}
+DEFAULT_REQUEST_GAP_SECONDS=6.0
 
 def parse_urls(value: str, limit: int = 10) -> list[str]:
     if not isinstance(value,str):
@@ -125,7 +127,11 @@ def main(argv=None) -> int:
     p.add_argument("--expected-labels",default="")
     p.add_argument("--model",default=DEFAULT_MODEL)
     p.add_argument("--out",default="gemini-lab-batch-output")
+    p.add_argument("--request-gap-seconds",type=float,default=float(os.environ.get("GEMINI_REQUEST_GAP_SECONDS","6")),
+                   help="Successful video analyses are spaced by this many seconds to avoid burst RPM usage.")
     args=p.parse_args(argv)
+    if not 0 <= args.request_gap_seconds <= 60:
+        raise LabError("요청 간 대기 시간은 0~60초로 설정하세요.")
     urls=parse_urls(args.youtube_urls)
     labels=parse_labels(args.expected_labels,len(urls))
     key=os.environ.get("GEMINI_API_KEY","").strip()
@@ -152,6 +158,9 @@ def main(argv=None) -> int:
         })
         write_report(out_dir,rows,args.model)
         print(f"[{i}/{len(urls)}] 판별 {analysis.get('screen_scene_decision')} / {analysis.get('content_type')} / {analysis.get('confidence')}", flush=True)
+        if i < len(urls) and args.request_gap_seconds > 0:
+            print(f"다음 Gemini 요청까지 {args.request_gap_seconds:g}초 대기합니다.", flush=True)
+            time.sleep(args.request_gap_seconds)
     s=summarize(rows)
     print("Gemini Lab batch 완료:",s["videos"],"개 / 비교",s["comparable"],"개 / 정답",s["correct"])
     print("대략 유료단가 총 비용(참고): $%.6f" % s["roughPaidUsd"])
