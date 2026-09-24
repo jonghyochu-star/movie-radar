@@ -240,6 +240,7 @@ def call_gemini(api_key: str, url: str, model: str = DEFAULT_MODEL) -> tuple[dic
     response = None
     retryable = {429, 500, 502, 503, 504}
     max_attempts = 4
+    http_max_attempts = 2  # Conserve small free-tier RPD: one HTTP retry only.
     for attempt in range(max_attempts):
         try:
             with urlopen(req, timeout=240) as r:
@@ -255,7 +256,7 @@ def call_gemini(api_key: str, url: str, model: str = DEFAULT_MODEL) -> tuple[dic
                     "할당량이 재설정되거나 상향될 때까지 다시 시도하지 않습니다."
                 ) from None
 
-            if exc.code in retryable and attempt < max_attempts - 1:
+            if exc.code in retryable and attempt < http_max_attempts - 1:
                 retry_after = None
                 try:
                     retry_after = int((exc.headers or {}).get("Retry-After", ""))
@@ -265,7 +266,7 @@ def call_gemini(api_key: str, url: str, model: str = DEFAULT_MODEL) -> tuple[dic
                 reason = f" ({api_error_code})" if api_error_code else ""
                 print(
                     f"Gemini 일시 오류 HTTP {exc.code}{reason}; "
-                    f"{delay}초 뒤 재시도 {attempt + 2}/{max_attempts}.",
+                    f"{delay}초 뒤 재시도 {attempt + 2}/{http_max_attempts}.",
                     file=sys.stderr,
                 )
                 time.sleep(delay)
