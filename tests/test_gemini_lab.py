@@ -30,7 +30,11 @@ class GeminiLabTests(unittest.TestCase):
     def test_schema_has_core_blind_fields(self):
         s = M.schema()
         self.assertEqual(s["type"], "object")
-        for key in ["screen_scene_decision", "content_type", "story_arc", "summary_ko", "preference_features"]:
+        for key in [
+            "screen_scene_decision", "content_type", "primary_relationship", "story_pattern",
+            "story_arc", "emotional_payoff", "setup_clear", "payoff_clear", "context_required",
+            "visual_dependency", "transcript_sufficiency", "summary_ko", "preference_features"
+        ]:
             self.assertIn(key, s["properties"])
             self.assertIn(key, s["required"])
 
@@ -38,6 +42,8 @@ class GeminiLabTests(unittest.TestCase):
         self.assertNotIn("movie_drama", M.PROMPT)
         self.assertNotIn("not_movie_drama", M.PROMPT)
         self.assertIn("블라인드", M.PROMPT)
+        self.assertIn("transcript_sufficiency", M.PROMPT)
+        self.assertIn("제작 후보인지 직접 판정하지 마세요", M.PROMPT)
 
     def test_cost_estimate(self):
         x = M.estimate_cost_usd({
