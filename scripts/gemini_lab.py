@@ -194,6 +194,25 @@ def extract_output_text(response: dict) -> str:
     return "".join(texts)
 
 
+def interactions_error_code(exc: HTTPError) -> str | None:
+    """Read only the structured Interactions API error code; never log the response body."""
+    try:
+        raw = exc.read(65536)
+    except (AttributeError, OSError, ValueError):
+        return None
+    if not raw:
+        return None
+    try:
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", errors="replace")
+        payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError):
+        return None
+    error = payload.get("error") if isinstance(payload, dict) else None
+    code = error.get("code") if isinstance(error, dict) else None
+    return code.strip().lower() if isinstance(code, str) and code.strip() else None
+
+
 def call_gemini(api_key: str, url: str, model: str = DEFAULT_MODEL) -> tuple[dict, dict]:
     payload = {
         "model": model,
@@ -227,7 +246,15 @@ def call_gemini(api_key: str, url: str, model: str = DEFAULT_MODEL) -> tuple[dic
                 response = json.load(r)
             break
         except HTTPError as exc:
-            # Never include body/URL because provider errors can echo request details.
+            # Interactions API distinguishes transient 429s from exhausted daily quota.
+            # Parse only the machine-readable error code and never print the provider body/URL.
+            api_error_code = interactions_error_code(exc)
+            if exc.code == 429 and api_error_code == "quota_exceeded":
+                raise LabError(
+                    "Gemini API 일일 사용 한도(RPD)에 도달했습니다. "
+                    "할당량이 재설정되거나 상향될 때까지 다시 시도하지 않습니다."
+                ) from None
+
             if exc.code in retryable and attempt < max_attempts - 1:
                 retry_after = None
                 try:
@@ -235,9 +262,20 @@ def call_gemini(api_key: str, url: str, model: str = DEFAULT_MODEL) -> tuple[dic
                 except (ValueError, TypeError, AttributeError):
                     retry_after = None
                 delay = retry_after if retry_after is not None else min(8, 2 ** attempt)
-                print(f"Gemini 일시 오류 HTTP {exc.code}; {delay}초 뒤 재시도 {attempt + 2}/{max_attempts}.", file=sys.stderr)
+                reason = f" ({api_error_code})" if api_error_code else ""
+                print(
+                    f"Gemini 일시 오류 HTTP {exc.code}{reason}; "
+                    f"{delay}초 뒤 재시도 {attempt + 2}/{max_attempts}.",
+                    file=sys.stderr,
+                )
                 time.sleep(delay)
                 continue
+
+            if exc.code == 429 and api_error_code == "rate_limit_exceeded":
+                raise LabError("Gemini API 분당 요청/토큰 한도에 도달했습니다. 잠시 뒤 다시 시도하세요.") from None
+            if exc.code == 429 and api_error_code == "too_many_requests":
+                raise LabError("Gemini API에 짧은 시간 요청이 몰렸습니다. 잠시 뒤 다시 시도하세요.") from None
+
             messages = {
                 400: "Gemini 요청 형식 또는 영상 URL을 확인하세요.",
                 401: "Gemini API 인증에 실패했습니다. GEMINI_API_KEY를 확인하세요.",
