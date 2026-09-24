@@ -33,7 +33,7 @@ class GeminiLabTests(unittest.TestCase):
         for key in [
             "screen_scene_decision", "content_type", "primary_relationship", "story_pattern",
             "story_arc", "emotional_payoff", "setup_clear", "payoff_clear", "context_required",
-            "visual_dependency", "transcript_sufficiency", "summary_ko", "preference_features"
+            "visual_dependency", "transcript_sufficiency", "summary_ko", "story_features"
         ]:
             self.assertIn(key, s["properties"])
             self.assertIn(key, s["required"])
@@ -77,7 +77,7 @@ class GeminiLabTests(unittest.TestCase):
             "story_completeness": "moment_only",
             "aftertaste": "weak",
             "summary_ko": "실제 인물 영상이다.",
-            "preference_features": [],
+            "story_features": [],
         }
         response = {
             "status": "completed",
@@ -102,7 +102,7 @@ class GeminiLabTests(unittest.TestCase):
             "screen_scene_decision": "yes", "content_type": "feature_film_scene", "confidence": "high",
             "why": ["배우의 연기 장면"], "relationship": ["부녀"], "story_arc": "갈등→이해→화해",
             "emotional_turn": True, "turn_timestamp": "00:40", "story_completeness": "complete",
-            "aftertaste": "strong", "summary_ko": "가족 갈등이 풀린다.", "preference_features": ["가족", "화해"]
+            "aftertaste": "strong", "summary_ko": "가족 갈등이 풀린다.", "story_features": ["가족", "화해"]
         }
         with tempfile.TemporaryDirectory() as td:
             M.write_reports(Path(td), "https://youtu.be/AbCdEfGhI01", M.DEFAULT_MODEL, result, {}, "movie_drama")
