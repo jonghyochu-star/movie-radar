@@ -146,7 +146,7 @@ def schema() -> dict:
                 "type": "string",
                 "description": "2-4 sentence Korean summary of what actually happens in the video, without reproducing dialogue."
             },
-            "preference_features": {
+            "story_features": {
                 "type": "array", "maxItems": 8,
                 "items": {"type": "string"},
                 "description": "Short Korean tags describing the story/emotional texture, not quality scores."
@@ -157,7 +157,7 @@ def schema() -> dict:
             "primary_relationship", "story_pattern", "story_arc", "emotional_turn", "turn_timestamp",
             "story_completeness", "aftertaste", "emotional_payoff", "setup_clear", "payoff_clear",
             "context_required", "visual_dependency", "transcript_sufficiency",
-            "summary_ko", "preference_features"
+            "summary_ko", "story_features"
         ]
     }
 
@@ -323,7 +323,7 @@ def write_reports(out_dir: Path, video_url: str, model: str, result: dict, usage
     comp = payload["comparison"]
     why = "\n".join(f"- {x}" for x in result.get("why", [])) or "- 없음"
     rel = ", ".join(result.get("relationship", [])) or "미확인"
-    feats = ", ".join(result.get("preference_features", [])) or "없음"
+    feats = ", ".join(result.get("story_features", [])) or "없음"
     verdict = "비교 안 함" if not comp.get("comparable") else ("일치" if comp.get("correct") else "불일치")
     md = f"""# Movie Radar Gemini Lab v0.3\n\n- 영상 ID: `{vid}`\n- 모델: `{model}`\n- 사람이 넣은 정답: `{expected}`\n- 블라인드 비교: **{verdict}**\n\n## Gemini 판별\n\n- 실제 영화·드라마 계열 장면: **{result.get('screen_scene_decision')}**\n- 콘텐츠 유형: **{result.get('content_type')}**\n- 확신도: **{result.get('confidence')}**\n\n### 근거\n{why}\n\n## 이야기 분석\n\n- 관계: {rel}\n- 핵심 관계: {result.get('primary_relationship', '미확인')}\n- 이야기 패턴: {result.get('story_pattern', '불명확')}\n- 흐름: {result.get('story_arc')}\n- 감정 전환: {result.get('emotional_turn')}\n- 전환 시각: {result.get('turn_timestamp') or '없음'}\n- 이야기 완결성: {result.get('story_completeness')}\n- 시작 맥락 충분: {result.get('setup_clear')}\n- 결말/보상 명확: {result.get('payoff_clear')}\n- 외부 맥락 필요: {result.get('context_required')}\n- 여운: {result.get('aftertaste')}\n- 감정 보상: {', '.join(result.get('emotional_payoff') or []) or '불명확'}\n- 시각 의존도: {result.get('visual_dependency', 'uncertain')}\n- 자막만 1차 분석 가능성: {result.get('transcript_sufficiency', 'uncertain')}\n- 요약: {result.get('summary_ko')}\n- 이야기 특징: {feats}\n\n## 실제 API 사용량\n\n- 입력 토큰: {c['input_tokens']:,}\n- 도구 사용 토큰: {c['tool_use_tokens']:,}\n- 출력 토큰: {c['output_tokens']:,}\n- thinking 토큰: {c['thought_tokens']:,}\n- 유료 단가 기준 대략 비용: **${c['rough_paid_usd']:.6f}**\n\n> {c['note']}\n"""
     (out_dir / "gemini-lab-report.md").write_text(md, encoding="utf-8")
