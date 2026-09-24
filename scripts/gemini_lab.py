@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Movie Radar Gemini Lab v0.1.1
+"""Movie Radar Gemini Lab v0.3
 
 One-video blind evaluation using Gemini video understanding via a public YouTube URL.
 - Never writes or prints GEMINI_API_KEY.
@@ -86,7 +86,25 @@ def schema() -> dict:
             "relationship": {
                 "type": "array", "maxItems": 4,
                 "items": {"type": "string"},
-                "description": "Main relationship(s), in Korean, e.g. 부녀, 부자, 친구, 낯선 사람, 동료."
+                "description": "Visible relationship(s), in Korean. Keep this descriptive and do not infer hidden biography."
+            },
+            "primary_relationship": {
+                "type": "string",
+                "enum": [
+                    "부모-자녀", "조부모-손자녀", "부부·연인", "친구", "동료",
+                    "교사-학생", "권위자-시민", "낯선 사람", "가족 기타", "기타", "불명확"
+                ],
+                "description": "The relationship most central to the emotional event in this clip."
+            },
+            "story_pattern": {
+                "type": "string",
+                "enum": [
+                    "뜻밖의 친절", "관계 회복", "용서·두 번째 기회", "존엄·인정",
+                    "우정·연대", "희생·보호", "가족애", "유머 속 따뜻함",
+                    "노력 끝의 인정", "재회", "편견·오해의 반전", "위기·구원",
+                    "상실·위로", "로맨스", "성장", "기타", "불명확"
+                ],
+                "description": "Broad reusable story pattern, chosen descriptively rather than as a preference score."
             },
             "story_arc": {
                 "type": "string",
@@ -105,6 +123,25 @@ def schema() -> dict:
                 "type": "string", "enum": ["complete", "partial", "moment_only", "uncertain"]
             },
             "aftertaste": {"type": "string", "enum": ["strong", "medium", "weak", "uncertain"]},
+            "emotional_payoff": {
+                "type": "array", "maxItems": 3,
+                "items": {
+                    "type": "string",
+                    "enum": ["따뜻함", "감동", "통쾌함", "안도", "슬픔", "애틋함", "웃음", "희망", "씁쓸함", "놀람", "기타", "불명확"]
+                },
+                "description": "What the ending or turn leaves the viewer feeling; descriptive, not a quality score."
+            },
+            "setup_clear": {"type": "boolean", "description": "Whether the clip itself establishes enough setup to follow the event."},
+            "payoff_clear": {"type": "boolean", "description": "Whether the clip itself contains a visible emotional or story payoff."},
+            "context_required": {"type": "boolean", "description": "True when outside film context is materially needed to understand why the scene matters."},
+            "visual_dependency": {
+                "type": "string", "enum": ["high", "medium", "low", "uncertain"],
+                "description": "How much key story or emotion depends on visuals, expressions, actions, or editing rather than words."
+            },
+            "transcript_sufficiency": {
+                "type": "string", "enum": ["likely", "maybe", "unlikely", "uncertain"],
+                "description": "Whether a transcript alone would probably preserve enough information for first-pass story analysis."
+            },
             "summary_ko": {
                 "type": "string",
                 "description": "2-4 sentence Korean summary of what actually happens in the video, without reproducing dialogue."
@@ -117,8 +154,10 @@ def schema() -> dict:
         },
         "required": [
             "screen_scene_decision", "content_type", "confidence", "why", "relationship",
-            "story_arc", "emotional_turn", "turn_timestamp", "story_completeness",
-            "aftertaste", "summary_ko", "preference_features"
+            "primary_relationship", "story_pattern", "story_arc", "emotional_turn", "turn_timestamp",
+            "story_completeness", "aftertaste", "emotional_payoff", "setup_clear", "payoff_clear",
+            "context_required", "visual_dependency", "transcript_sufficiency",
+            "summary_ko", "preference_features"
         ]
     }
 
@@ -133,6 +172,10 @@ PROMPT = """당신은 Movie Radar의 블라인드 영상 분석기입니다.
 영상의 시각과 음성을 실제로 확인해 판별하세요.
 
 그 다음에만 장면의 관계, 사건 흐름, 감정 전환, 여운을 분석하세요.
+사용자 취향에 맞는지, 많이 본 소재인지, 제작 후보인지 직접 판정하지 마세요.
+대신 이후 사용자 기록과 비교할 수 있도록 핵심 관계와 넓은 이야기 패턴을 일관된 항목으로 분류하세요.
+또한 이 장면을 자막/대사만으로 1차 분석해도 충분할지 판단할 수 있도록 시각 의존도와 transcript_sufficiency를 구분하세요.
+표정·행동·무언의 반전처럼 화면이 핵심이면 visual_dependency를 높이고 transcript_sufficiency를 낮추세요.
 확실하지 않으면 uncertain/불명확을 사용하세요. 작품명이나 제작국을 추측하지 마세요.
 대사를 길게 인용하지 말고 한국어로 요약하세요. 숫자 점수는 만들지 마세요.
 """
@@ -264,7 +307,7 @@ def write_reports(out_dir: Path, video_url: str, model: str, result: dict, usage
     vid = youtube_id(video_url)
     payload = {
         "schema": 1,
-        "labVersion": "0.1.1",
+        "labVersion": "0.3",
         "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "videoId": vid,
         "videoUrl": canonical_youtube_url(video_url),
@@ -282,7 +325,7 @@ def write_reports(out_dir: Path, video_url: str, model: str, result: dict, usage
     rel = ", ".join(result.get("relationship", [])) or "미확인"
     feats = ", ".join(result.get("preference_features", [])) or "없음"
     verdict = "비교 안 함" if not comp.get("comparable") else ("일치" if comp.get("correct") else "불일치")
-    md = f"""# Movie Radar Gemini Lab v0.1.1\n\n- 영상 ID: `{vid}`\n- 모델: `{model}`\n- 사람이 넣은 정답: `{expected}`\n- 블라인드 비교: **{verdict}**\n\n## Gemini 판별\n\n- 실제 영화·드라마 계열 장면: **{result.get('screen_scene_decision')}**\n- 콘텐츠 유형: **{result.get('content_type')}**\n- 확신도: **{result.get('confidence')}**\n\n### 근거\n{why}\n\n## 이야기 분석\n\n- 관계: {rel}\n- 흐름: {result.get('story_arc')}\n- 감정 전환: {result.get('emotional_turn')}\n- 전환 시각: {result.get('turn_timestamp') or '없음'}\n- 이야기 완결성: {result.get('story_completeness')}\n- 여운: {result.get('aftertaste')}\n- 요약: {result.get('summary_ko')}\n- 취향 특징: {feats}\n\n## 실제 API 사용량\n\n- 입력 토큰: {c['input_tokens']:,}\n- 도구 사용 토큰: {c['tool_use_tokens']:,}\n- 출력 토큰: {c['output_tokens']:,}\n- thinking 토큰: {c['thought_tokens']:,}\n- 유료 단가 기준 대략 비용: **${c['rough_paid_usd']:.6f}**\n\n> {c['note']}\n"""
+    md = f"""# Movie Radar Gemini Lab v0.3\n\n- 영상 ID: `{vid}`\n- 모델: `{model}`\n- 사람이 넣은 정답: `{expected}`\n- 블라인드 비교: **{verdict}**\n\n## Gemini 판별\n\n- 실제 영화·드라마 계열 장면: **{result.get('screen_scene_decision')}**\n- 콘텐츠 유형: **{result.get('content_type')}**\n- 확신도: **{result.get('confidence')}**\n\n### 근거\n{why}\n\n## 이야기 분석\n\n- 관계: {rel}\n- 흐름: {result.get('story_arc')}\n- 감정 전환: {result.get('emotional_turn')}\n- 전환 시각: {result.get('turn_timestamp') or '없음'}\n- 이야기 완결성: {result.get('story_completeness')}\n- 여운: {result.get('aftertaste')}\n- 요약: {result.get('summary_ko')}\n- 취향 특징: {feats}\n\n## 실제 API 사용량\n\n- 입력 토큰: {c['input_tokens']:,}\n- 도구 사용 토큰: {c['tool_use_tokens']:,}\n- 출력 토큰: {c['output_tokens']:,}\n- thinking 토큰: {c['thought_tokens']:,}\n- 유료 단가 기준 대략 비용: **${c['rough_paid_usd']:.6f}**\n\n> {c['note']}\n"""
     (out_dir / "gemini-lab-report.md").write_text(md, encoding="utf-8")
 
 
