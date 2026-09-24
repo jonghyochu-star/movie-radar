@@ -12,7 +12,7 @@ Full semantic reports were available for three completed analyses:
    - Emotional turn present at 02:11
    - Story completeness: partial
    - Aftertaste: strong
-   - Preference tags included reunion, romance, warm ending, longing
+   - Story tags included reunion, romance, warm ending, longing
 
 2. `VfVRkZBEDnc` — not movie/drama expected
    - Gemini: no / behind_the_scenes / high
@@ -54,7 +54,7 @@ Multiple visible relationships can all be correct, but Movie Radar needs one pri
 
 Strong/medium/weak can help as evidence, but it must not directly mean “결 맞음”, “전개 약함”, or “제작 후보”.
 
-### 4. Free-form preference tags are useful but inconsistent
+### 4. Free-form story tags are useful but inconsistent
 
 They are good for explanation and discovery, but synonym drift makes them weak as the only learning signal. Controlled relationship/story-pattern fields should sit beside them.
 
