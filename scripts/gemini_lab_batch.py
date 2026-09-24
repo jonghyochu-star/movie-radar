@@ -117,7 +117,7 @@ def write_report(out_dir: Path, rows: list[dict], model: str, batch_error: str =
     lines += ["","## 이야기 특징",""]
     for i,r in enumerate(rows,1):
         a=r["analysis"]
-        feats=", ".join(a.get("preference_features") or []) or "없음"
+        feats=", ".join(a.get("story_features") or []) or "없음"
         payoff=", ".join(a.get("emotional_payoff") or []) or "불명확"
         lines += [
             f"### {i}. {r['videoId']}",
