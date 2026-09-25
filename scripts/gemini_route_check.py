@@ -58,9 +58,84 @@ def request_payload(video_url: str) -> dict:
             {"fileData": {"fileUri": canonical_youtube_url(video_url)}},
         ]}],
         "generationConfig": {
-            "responseFormat": {"text": {"mimeType": "application/json", "schema": schema()}}
+            "responseFormat": {"text": {"mimeType": "APPLICATION_JSON", "schema": schema()}}
         },
     }
+
+
+def request_contract_error(payload: dict) -> str | None:
+    """Check this probe's JSON-output wire contract before spending a request.
+
+    REST TextResponseFormat.mimeType is an enum, unlike the HTTP Content-Type
+    header or legacy generationConfig.responseMimeType, which use MIME strings.
+    Reference: https://ai.google.dev/api/generate-content#textresponseformat
+    """
+    try:
+        config = payload["generationConfig"]
+        text_format = config["responseFormat"]["text"]
+        if text_format["mimeType"] != "APPLICATION_JSON":
+            return "local_invalid_mime_enum"
+        if set(config) != {"responseFormat"} or text_format["schema"] != schema():
+            return "local_invalid_response_format"
+    except (KeyError, TypeError):
+        return "local_invalid_response_format"
+    return None
+
+
+# Only these fixed names may leave the error parser. Never preserve input values,
+# URLs, API keys, provider prose, arbitrary field paths, or model thoughts.
+DIAGNOSTIC_FIELDS = (
+    "generation_config.response_format.text.mime_type",
+    "generation_config.response_format.text.schema",
+    "generation_config.response_format.text",
+    "generation_config.response_format",
+    "generation_config.response_mime_type",
+    "generation_config.response_json_schema",
+    "generation_config", "contents.parts.file_data.file_uri",
+    "contents.parts.file_data.mime_type", "contents.parts.file_data",
+    "contents.parts", "contents", "model",
+)
+
+
+def safe_error_details(error: dict) -> tuple[list[str], str | None]:
+    """Reduce BadRequest details to fixed field names and fixed error categories."""
+    fields = []
+
+    def add_field(value):
+        if not isinstance(value, str) or len(value) > 1024:
+            return
+        value = re.sub(r"\[[0-9]+\]", "", value)
+        value = re.sub(r"(?<!^)(?=[A-Z])", "_", value).lower()
+        for known in DIAGNOSTIC_FIELDS:
+            if value == known or value.startswith(known + "."):
+                if known not in fields:
+                    fields.append(known)
+                break
+
+    details = error.get("details")
+    if isinstance(details, list):
+        for detail in details[:16]:
+            if not isinstance(detail, dict) or detail.get("@type") != "type.googleapis.com/google.rpc.BadRequest":
+                continue
+            violations = detail.get("fieldViolations")
+            if isinstance(violations, list):
+                for item in violations[:16]:
+                    if isinstance(item, dict):
+                        add_field(item.get("field"))
+    kind = None
+    message = error.get("message")
+    if isinstance(message, str):
+        message = message[:8192]
+        # Only known paths named in a parser's `at 'field'` location are retained.
+        for match in re.finditer(r"\bat ['\"]([A-Za-z0-9_.\[\]]{1,512})['\"]", message):
+            add_field(match.group(1))
+        if "Unknown name" in message:
+            kind = "unknown_field"
+        elif "Invalid value" in message:
+            kind = "invalid_value"
+        elif "Invalid JSON payload" in message:
+            kind = "invalid_json_payload"
+    return fields[:8], kind
 
 
 def schema_matches(value, spec: dict) -> bool:
@@ -86,14 +161,16 @@ def schema_matches(value, spec: dict) -> bool:
     return False  # Fail closed if the shared schema later uses a new type.
 
 
-def read_error(exc: HTTPError) -> tuple[str, int | None]:
-    """Keep only allowlisted codes and numeric retry delay, never raw messages."""
+def read_error(exc: HTTPError) -> tuple[str, int | None, list[str], str | None]:
+    """Keep codes, numeric retry delay and allowlisted field diagnostics only."""
     code = "unknown_http_error"
     delay = None
+    fields, kind = [], None
     try:
         payload = json.loads(exc.read(65536))
         error = payload.get("error", {}) if isinstance(payload, dict) else {}
         if isinstance(error, dict):
+            fields, kind = safe_error_details(error)
             for candidate in (error.get("code"), error.get("status")):
                 if isinstance(candidate, str) and candidate in ERROR_CODES:
                     code = candidate
@@ -106,7 +183,7 @@ def read_error(exc: HTTPError) -> tuple[str, int | None]:
             delay = int(raw.strip())
     except (ValueError, TypeError, AttributeError):
         pass
-    return code, delay
+    return code, delay, fields, kind
 
 
 def consume_response(response: dict, report: dict) -> None:
@@ -152,7 +229,7 @@ def run_check(video_url: str, *, live: bool = False, api_key: str = "") -> dict:
     payload = request_payload(video_url)  # Local validation before any connection.
     commit = os.environ.get("GITHUB_SHA", "")
     report = {
-        "reportKind": "gemini-route-check", "probeVersion": "0.1", "labVersion": "0.3",
+        "reportKind": "gemini-route-check", "probeVersion": "0.2", "labVersion": "0.3",
         "generatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "gitCommit": commit if re.fullmatch(r"[0-9a-f]{40}", commit) else None,
         "route": "generateContent", "model": DEFAULT_MODEL,
@@ -161,9 +238,15 @@ def run_check(video_url: str, *, live: bool = False, api_key: str = "") -> dict:
         "schemaSha256": hashlib.sha256(json.dumps(schema(), ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest(),
         "status": "prepared", "attempts": 0, "httpStatus": None, "errorCode": None,
         "retryAfterSeconds": None, "elapsedSeconds": 0, "schemaValid": None,
+        "requestFormatValid": False, "errorFields": [], "errorKind": None,
         "analysis": None, "usage": None,
         "quotaConsumption": "not_measured", "billingEstimateUsd": None,
     }
+    contract_error = request_contract_error(payload)
+    if contract_error:
+        report.update(status="failed", errorCode=contract_error)
+        return report
+    report["requestFormatValid"] = True
     if not live:
         return report
     report["status"] = "failed"
@@ -185,7 +268,8 @@ def run_check(video_url: str, *, live: bool = False, api_key: str = "") -> dict:
             consume_response(json.loads(raw), report)
     except HTTPError as exc:
         report["httpStatus"] = exc.code
-        report["errorCode"], report["retryAfterSeconds"] = read_error(exc)
+        (report["errorCode"], report["retryAfterSeconds"],
+         report["errorFields"], report["errorKind"]) = read_error(exc)
         exc.close()
     except (URLError, TimeoutError, OSError, HTTPException):
         report["errorCode"] = "network_error"
@@ -205,6 +289,9 @@ def write_report(out_dir: Path, report: dict) -> None:
              f"- 모델: `{report['model']}`", f"- 영상: `{report['videoId']}`",
              f"- 명시적 요청 시도: {report['attempts']}회 (재시도·자동 전환 없음)",
              f"- HTTP 상태: {report['httpStatus']}", f"- 안전한 오류 코드: {report['errorCode']}",
+             f"- 요청 형식 사전검사: {report.get('requestFormatValid')}",
+             f"- 오류 항목(허용목록): {', '.join(report.get('errorFields') or []) or '미제공'}",
+             f"- 오류 분류: {report.get('errorKind') or '미확인'}",
              f"- 서버가 안내한 대기 초: {report['retryAfterSeconds']}",
              f"- 경과 시간: {report['elapsedSeconds']}초", "",
              "> 실패 요청의 할당량 차감·청구 여부는 이 보고서로 확정하지 않습니다.",
@@ -231,7 +318,7 @@ def main(argv=None) -> int:
         print("YouTube 영상 URL을 확인하세요. API를 호출하지 않았습니다.", file=sys.stderr)
         return 2
     write_report(Path(args.out), report)
-    print(f"Route Check: {report['status']} / 요청 {report['attempts']}회 / "
+    print(f"Route Check v{report['probeVersion']}: {report['status']} / 요청 {report['attempts']}회 / "
           f"HTTP {report['httpStatus']} / {report['errorCode']}")
     return 2 if report["status"] == "failed" else 0
 

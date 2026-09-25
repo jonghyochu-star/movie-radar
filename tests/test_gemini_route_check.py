@@ -64,12 +64,102 @@ class RouteCheckTests(unittest.TestCase):
             {'text': M.PROMPT}, {'fileData': {'fileUri': URL}}
         ])
         self.assertEqual(payload['generationConfig'], {
-            'responseFormat': {'text': {'mimeType': 'application/json', 'schema': M.schema()}}
+            'responseFormat': {'text': {'mimeType': 'APPLICATION_JSON', 'schema': M.schema()}}
         })
         self.assertEqual(set(payload), {'contents', 'generationConfig'})
         for key in ('expected', 'expected_label', 'comparison', 'safetySettings', 'tools'):
             self.assertNotIn(key, payload)
         self.open.assert_not_called()
+
+    def test_rest_text_mime_enum_contract(self):
+        # Independent expected values from REST TextResponseFormat / MimeType.
+        # Not copied from the request builder. The HTTP header still uses a MIME string.
+        payload = M.request_payload(URL)
+        text = payload['generationConfig']['responseFormat']['text']
+        self.assertIn(text['mimeType'], {'APPLICATION_JSON', 'TEXT_PLAIN'})
+        self.assertEqual(text['mimeType'], 'APPLICATION_JSON')
+        self.assertIsNone(M.request_contract_error(payload))
+        self.success()
+        self.assertEqual(self.open.call_args.args[0].get_header('Content-type'), 'application/json')
+
+    def test_old_mime_string_is_rejected_without_request(self):
+        payload = M.request_payload(URL)
+        payload['generationConfig']['responseFormat']['text']['mimeType'] = 'application/json'
+        for live in (False, True):
+            with self.subTest(live=live), mock.patch.object(M, 'request_payload', return_value=payload):
+                report = M.run_check(URL, live=live, api_key=KEY)
+                self.assertEqual(report['errorCode'], 'local_invalid_mime_enum')
+                self.assertEqual(report['attempts'], 0)
+                self.assertFalse(report['requestFormatValid'])
+        self.open.assert_not_called()
+
+    def test_malformed_request_format_is_rejected_without_request(self):
+        bad = M.request_payload(URL)
+        del bad['generationConfig']['responseFormat']['text']['schema']
+        with mock.patch.object(M, 'request_payload', return_value=bad):
+            report = M.run_check(URL, live=True, api_key=KEY)
+        self.assertEqual(report['errorCode'], 'local_invalid_response_format')
+        self.assertEqual(report['attempts'], 0)
+        self.open.assert_not_called()
+
+    def test_bad_request_field_is_kept_without_private_values(self):
+        # Synthetic fixture, NOT the unrecoverable provider body from Route Check #2.
+        body = {'error': {'code': 400, 'status': 'INVALID_ARGUMENT',
+            'message': "Invalid value at 'generation_config.response_format.text.mime_type': " + KEY,
+            'details': [{'@type': 'type.googleapis.com/google.rpc.BadRequest',
+                'fieldViolations': [
+                    {'field': 'generationConfig.responseFormat.text.mimeType', 'description': KEY},
+                    {'field': KEY, 'description': KEY},
+                    {'field': 'contents[0].parts[1].fileData.fileUri', 'description': 'https://private.invalid/' + KEY},
+                ]}]}}
+        self.open.side_effect = M.HTTPError('https://example.invalid/' + KEY, 400, KEY, {},
+                                            io.BytesIO(json.dumps(body).encode()))
+        report = M.run_check(URL, live=True, api_key=KEY)
+        self.assertEqual(report['errorFields'], [
+            'generation_config.response_format.text.mime_type', 'contents.parts.file_data.file_uri'])
+        self.assertEqual(report['errorKind'], 'invalid_value')
+        self.assertEqual(report['httpStatus'], 400)
+        self.assertEqual(report['attempts'], 1)
+        self.assertNotIn(KEY, json.dumps(report))
+        self.assertNotIn('private.invalid', json.dumps(report))
+        self.open.assert_called_once()
+
+    def test_message_only_field_location_is_safe(self):
+        fields, kind = M.safe_error_details({
+            'message': "Invalid value at 'generation_config.response_format.text.mime_type': " + KEY})
+        self.assertEqual(fields, ['generation_config.response_format.text.mime_type'])
+        self.assertEqual(kind, 'invalid_value')
+        self.assertNotIn(KEY, json.dumps([fields, kind]))
+        self.assertEqual(M.safe_error_details({'message': KEY}), ([], None))
+        self.assertEqual(M.safe_error_details({'message': "Unknown name at 'generation_config' " + KEY}),
+                         (['generation_config'], 'unknown_field'))
+
+    def test_malformed_error_details_do_not_break_parser(self):
+        for details in (None, KEY, [None, 'wrong'], [{'@type': 'wrong', 'fieldViolations': [{'field': KEY}]}],
+                        [{'@type': 'type.googleapis.com/google.rpc.BadRequest', 'fieldViolations': KEY}]):
+            fields, kind = M.safe_error_details({'details': details, 'message': None})
+            self.assertEqual((fields, kind), ([], None))
+        fields, _ = M.safe_error_details({'details': [{
+            '@type': 'type.googleapis.com/google.rpc.BadRequest',
+            'fieldViolations': [{'field': 'generation_config.response_format.text.schema.properties.' + KEY}]}]})
+        self.assertEqual(fields, ['generation_config.response_format.text.schema'])
+        self.assertNotIn(KEY, json.dumps(fields))
+
+    def test_failure_report_renders_safe_details_and_version(self):
+        self.open.side_effect = M.HTTPError('https://example.invalid', 400, KEY, {}, io.BytesIO(
+            json.dumps({'error': {'status': 'INVALID_ARGUMENT',
+                'message': "Invalid value at 'generation_config.response_format.text.mime_type': " + KEY}}).encode()))
+        with tempfile.TemporaryDirectory() as td, mock.patch.dict(os.environ, {'GEMINI_API_KEY': KEY}), \
+                contextlib.redirect_stdout(io.StringIO()) as logs:
+            self.assertEqual(M.main(['--youtube-url', URL, '--live', '--out', td]), 2)
+            report = json.loads((Path(td) / 'gemini-route-check.json').read_text())
+            md = (Path(td) / 'gemini-route-check.md').read_text()
+            self.assertEqual(report['probeVersion'], '0.2')
+            self.assertIn('generation_config.response_format.text.mime_type', md)
+            self.assertIn('invalid_value', md)
+            self.assertIn('Route Check v0.2:', logs.getvalue())
+            self.assertNotIn(KEY, md + json.dumps(report) + logs.getvalue())
+        self.open.assert_called_once()
 
     def test_default_dry_run_never_connects(self):
         report = M.run_check(URL, api_key=KEY)
