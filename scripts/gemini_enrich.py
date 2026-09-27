@@ -16,10 +16,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.request import Request, urlopen
 
 _SCRIPT_DIR = str(Path(__file__).resolve().parent)
 if _SCRIPT_DIR not in sys.path:
@@ -117,6 +119,55 @@ def load_cache(path: Path) -> dict:
 def save_cache(path: Path, cache: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(cache, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+CARRYOVER_FIELDS = (
+    "language", "languageBasis", "audioLanguage", "declaredLanguage",
+    "languageSource", "titleLanguage", "titleLanguageBasis",
+    "screenKind", "screenReason", "metadataVersion", "id", "title",
+    "channelTitle", "channelId", "views", "subscribers", "publishedAt",
+    "fetchedAt", "durationSeconds", "audience", "thumbnail",
+    "originalStatus", "source", "discoveryRoutes", "discoveryLabels",
+    "sourceKinds", "screenGate", "shortsHint",
+)
+
+
+def compact_candidate(video: dict) -> dict:
+    return {k: video[k] for k in CARRYOVER_FIELDS if k in video}
+
+
+def recover_deferred_carryovers(cache: dict, prior_data: dict) -> int:
+    """Migrate old deferred cache rows using the previous public deployment."""
+    if not isinstance(prior_data, dict) or not isinstance(prior_data.get("videos"), list):
+        return 0
+    by_id = {
+        v.get("id"): v for v in prior_data["videos"]
+        if isinstance(v, dict) and isinstance(v.get("id"), str)
+    }
+    recovered = 0
+    for vid, row in (cache.get("videos") or {}).items():
+        if not isinstance(row, dict) or row.get("status") != "deferred" or isinstance(row.get("carryover"), dict):
+            continue
+        video = by_id.get(vid)
+        if not isinstance(video, dict) or not bool((video.get("audience") or {}).get("validated")):
+            continue
+        row["carryover"] = compact_candidate(video)
+        recovered += 1
+    return recovered
+
+
+def load_prior_pages(repository: str) -> dict | None:
+    if not isinstance(repository, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        return None
+    owner, repo = repository.split("/", 1)
+    url = f"https://{owner}.github.io/{repo}/data/videos.json?t={int(time.time())}"
+    try:
+        req = Request(url, headers={"Accept": "application/json", "User-Agent": "MovieRadar/1.9.4"})
+        with urlopen(req, timeout=10) as response:
+            data = json.load(response)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
 
 
 def _views(video: dict) -> int:
@@ -319,17 +370,7 @@ def enrich_data(
         if bool((video.get("audience") or {}).get("validated")):
             # Keep only the bounded public candidate snapshot needed to retry a
             # strong video even after the collector's duplicate history moves on.
-            row["carryover"] = {
-                k: video[k] for k in (
-                    "language", "languageBasis", "audioLanguage", "declaredLanguage",
-                    "languageSource", "titleLanguage", "titleLanguageBasis",
-                    "screenKind", "screenReason", "metadataVersion", "id", "title",
-                    "channelTitle", "channelId", "views", "subscribers", "publishedAt",
-                    "fetchedAt", "durationSeconds", "audience", "thumbnail",
-                    "originalStatus", "source", "discoveryRoutes", "discoveryLabels",
-                    "sourceKinds", "screenGate", "shortsHint",
-                ) if k in video
-            }
+            row["carryover"] = compact_candidate(video)
         cache["videos"][vid] = row
         video["gemini"] = _site_deferred(row)
         deferred += 1
@@ -383,6 +424,12 @@ def main(argv=None) -> int:
     try:
         data = json.loads(source.read_text(encoding="utf-8"))
         cache = load_cache(cache_path)
+        recovered = recover_deferred_carryovers(
+            cache,
+            load_prior_pages(os.environ.get("GITHUB_REPOSITORY", "")) or {},
+        )
+        if recovered:
+            print(f"Gemini carry-over migration: 이전 배포에서 강한 보류 후보 {recovered}개 복구")
         data, cache = enrich_data(
             data,
             cache,
