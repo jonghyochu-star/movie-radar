@@ -1,6 +1,14 @@
 name: Movie Radar Gemini Text Health
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/movie-radar.yml'
+      - '.github/workflows/gemini-text-health.yml'
   workflow_dispatch:
     inputs:
       confirm_live_call:
