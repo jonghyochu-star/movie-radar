@@ -1,0 +1,67 @@
+name: Movie Radar Gemini v0.3 Plain JSON
+
+on:
+  workflow_dispatch:
+    inputs:
+      youtube_url:
+        description: 'v0.3 분석할 공개 YouTube 영상'
+        type: string
+        required: true
+        default: 'https://www.youtube.com/watch?v=gSu2ghFxoiY'
+      confirm_live_call:
+        description: '체크하면 서버 structured output 없이 v0.3 분석 요청을 정확히 1회 보냅니다.'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movie-radar-gemini-v03-plain
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Read project files
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - name: Syntax check only
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python -m py_compile scripts/gemini_v03_plain.py
+
+      - name: Prepare or send one v0.3 plain request
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_URL: ${{ inputs.youtube_url }}
+          CONFIRM_LIVE: ${{ inputs.confirm_live_call }}
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          args=()
+          if [ "$CONFIRM_LIVE" = "true" ]; then
+            args+=(--live)
+          fi
+          python scripts/gemini_v03_plain.py \
+            --youtube-url "$YOUTUBE_URL" \
+            --out gemini-v03-plain-output \
+            "${args[@]}"
+
+      - name: Save result or failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-v03-plain-${{ github.run_number }}-${{ github.run_attempt }}
+          path: gemini-v03-plain-output
+          retention-days: 14
+          if-no-files-found: warn
