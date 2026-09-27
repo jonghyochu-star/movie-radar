@@ -3,7 +3,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 
 class UiSourceTests(unittest.TestCase):
-    def test_version_is_193(self):
+    def test_version_is_194(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
         self.assertIn('version">1.9.3<',html)
         self.assertIn('styles.css?v=1.9.4',html)
