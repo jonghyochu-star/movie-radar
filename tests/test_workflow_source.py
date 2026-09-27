@@ -9,6 +9,10 @@ class WorkflowSourceTests(unittest.TestCase):
         self.assertIn('actions/cache@v4',text)
         self.assertIn('COLLECT_HISTORY_PATH: .cache/movie-radar/history.json',text)
         self.assertIn('--seed-video-ids "$SEED_VIDEO_IDS"',text)
+        self.assertIn('gemini_limit:',text)
+        self.assertIn("options: ['0','3','5','8']",text)
+        self.assertIn('scripts/gemini_enrich.py',text)
+        self.assertIn('.cache/movie-radar/gemini-v03.json',text)
     def test_config_expands_pool_but_bounded(self):
         import json
         c=json.loads((ROOT/'config.json').read_text(encoding='utf-8'))
