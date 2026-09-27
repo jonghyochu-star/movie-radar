@@ -224,6 +224,24 @@ class GeminiEnrichTests(unittest.TestCase):
         self.assertEqual(out["videos"][0]["gemini"]["status"], "deferred")
         self.assertEqual(out["geminiSummary"]["carryoverCandidates"], 1)
 
+    def test_legacy_deferred_cache_recovers_strong_candidate_from_prior_pages(self):
+        cache = M.empty_cache()
+        cache["videos"]["AbCdEfGhI01"] = {
+            "status": "deferred",
+            "deferredAt": "2026-09-27T10:00:00Z",
+            "errorCode": "UNAVAILABLE",
+        }
+        prior = {"videos": [{
+            **video("AbCdEfGhI01", 13_000_000, True),
+            "title": "legacy strong candidate",
+            "channelId": "legacy-channel",
+            "screenGate": ["movie"],
+        }]}
+        recovered = M.recover_deferred_carryovers(cache, prior)
+        self.assertEqual(recovered, 1)
+        self.assertEqual(cache["videos"]["AbCdEfGhI01"]["carryover"]["title"], "legacy strong candidate")
+        self.assertNotIn("gemini", cache["videos"]["AbCdEfGhI01"]["carryover"])
+
     def test_missing_key_only_errors_when_new_call_is_needed(self):
         data = {"videos": [video("AbCdEfGhI01", 9_000_000, True)]}
         with self.assertRaises(M.EnrichError):
