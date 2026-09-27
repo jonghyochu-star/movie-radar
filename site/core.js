@@ -348,6 +348,9 @@
     const p=preferenceClass(v,profile);return {matched:p.matched,channel:p.positives.includes('좋아요가 더 많았던 채널'),routes:routesOf(v).filter(route=>TASTE_ROUTES.has(route)&&_signal((profile.liked||{}).routes||profile.routeCounts||{},(profile.disliked||{}).routes||{},route)>0),bucket:p.bucket};
   }
   function candidateTier(v={},r={}) {
+    // Explicit user confirmation always outranks automated evidence.
+    if(mediaOf(r)==='not_screen')return 'low';
+    if(mediaOf(r)==='screen')return 'priority';
     const kind=screenKind(v,r);
     if(kind==='non_screen')return 'low';
     const geminiDecision=v?.gemini?.status==='success'?v.gemini.analysis?.screen_scene_decision:null;
