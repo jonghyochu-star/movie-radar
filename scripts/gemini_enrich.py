@@ -4,8 +4,11 @@
 - Uses the proven plain-JSON generateContent path.
 - API calls are opt-in via --limit > 0.
 - Cached successful analyses are reused without new requests.
+- Recently deferred videos cool down instead of blocking every later run.
 - At most --limit NEW requests are sent in one run.
-- The first API/response failure stops further new requests for that run.
+- Quota/auth failures stop immediately.
+- One transient service failure moves to another video; two consecutive service
+  failures stop the run to protect the free-tier quota.
 - Gemini describes scenes; it never creates user taste/production decisions.
 """
 from __future__ import annotations
@@ -14,7 +17,8 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 _SCRIPT_DIR = str(Path(__file__).resolve().parent)
@@ -28,6 +32,17 @@ from gemini_v03_plain import run as run_plain
 CACHE_SCHEMA = 1
 ANALYSIS_VERSION = "0.3-plain-local-schema-1"
 MAX_NEW_CALLS = 8
+DEFER_HOURS = 6
+REQUEST_GAP_SECONDS = 8.0
+TRANSIENT_CODES = {
+    "UNAVAILABLE", "INTERNAL", "DEADLINE_EXCEEDED", "NETWORK_OR_RESPONSE_ERROR",
+    "HTTP_500", "HTTP_502", "HTTP_503", "HTTP_504",
+}
+HARD_STOP_CODES = {
+    "RESOURCE_EXHAUSTED", "UNAUTHENTICATED", "PERMISSION_DENIED",
+    "QUOTA_EXCEEDED", "RATE_LIMIT_EXCEEDED", "MISSING_API_KEY",
+    "HTTP_401", "HTTP_403", "HTTP_429",
+}
 
 
 class EnrichError(Exception):
@@ -36,6 +51,15 @@ class EnrichError(Exception):
 
 def iso_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _dt(value: str | None) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except ValueError:
+        return None
 
 
 def empty_cache() -> dict:
@@ -62,19 +86,27 @@ def load_cache(path: Path) -> dict:
         or not isinstance(raw.get("videos"), dict)
     ):
         return empty_cache()
+
     out = empty_cache()
     for vid, row in raw["videos"].items():
-        if (
-            isinstance(vid, str)
-            and len(vid) == 11
-            and isinstance(row, dict)
-            and isinstance(row.get("analysis"), dict)
-            and isinstance(row.get("analyzedAt"), str)
-        ):
+        if not (isinstance(vid, str) and len(vid) == 11 and isinstance(row, dict)):
+            continue
+        if isinstance(row.get("analysis"), dict) and isinstance(row.get("analyzedAt"), str):
             out["videos"][vid] = {
+                "status": "success",
                 "analysis": row["analysis"],
                 "analyzedAt": row["analyzedAt"],
                 "usage": row.get("usage") if isinstance(row.get("usage"), dict) else None,
+            }
+        elif (
+            row.get("status") == "deferred"
+            and isinstance(row.get("deferredAt"), str)
+            and isinstance(row.get("errorCode"), str)
+        ):
+            out["videos"][vid] = {
+                "status": "deferred",
+                "deferredAt": row["deferredAt"],
+                "errorCode": row["errorCode"][:80],
             }
     return out
 
@@ -100,7 +132,20 @@ def _cached_success(cache: dict, vid: str) -> dict | None:
     return row
 
 
-def _site_payload(row: dict) -> dict:
+def _active_deferred(cache: dict, vid: str, now: str) -> dict | None:
+    row = (cache.get("videos") or {}).get(vid)
+    if not isinstance(row, dict) or row.get("status") != "deferred":
+        return None
+    at = _dt(row.get("deferredAt"))
+    current = _dt(now)
+    if not at or not current:
+        return None
+    if current - at < timedelta(hours=DEFER_HOURS):
+        return row
+    return None
+
+
+def _site_success(row: dict) -> dict:
     return {
         "status": "success",
         "version": ANALYSIS_VERSION,
@@ -110,16 +155,28 @@ def _site_payload(row: dict) -> dict:
     }
 
 
-def choose_new_candidates(videos: list[dict], cache: dict, limit: int) -> list[dict]:
+def _site_deferred(row: dict) -> dict:
+    return {
+        "status": "deferred",
+        "version": ANALYSIS_VERSION,
+        "model": DEFAULT_MODEL,
+        "analyzedAt": row.get("deferredAt"),
+        "errorCode": str(row.get("errorCode") or "ANALYSIS_FAILED")[:80],
+    }
+
+
+def choose_new_candidates(videos: list[dict], cache: dict, limit: int, now: str | None = None) -> list[dict]:
     """Prefer audience-validated clips but reserve one exploration slot when possible."""
     if limit <= 0:
         return []
+    stamp = now or iso_now()
     rows = [
         v for v in videos
         if isinstance(v, dict)
         and isinstance(v.get("id"), str)
         and len(v["id"]) == 11
         and _cached_success(cache, v["id"]) is None
+        and _active_deferred(cache, v["id"], stamp) is None
     ]
     validated = sorted(
         [v for v in rows if bool((v.get("audience") or {}).get("validated"))],
@@ -147,6 +204,22 @@ def choose_new_candidates(videos: list[dict], cache: dict, limit: int) -> list[d
     return selected[:limit]
 
 
+def _error_code(report: dict) -> str:
+    return str(
+        report.get("apiStatus")
+        or (f"HTTP_{report.get('httpStatus')}" if report.get("httpStatus") else "ANALYSIS_FAILED")
+    )[:80]
+
+
+def _is_hard_stop(report: dict, code: str) -> bool:
+    return report.get("httpStatus") in {401, 403, 429} or code in HARD_STOP_CODES
+
+
+def _is_transient(report: dict, code: str) -> bool:
+    status = report.get("httpStatus")
+    return status in {500, 502, 503, 504} or code in TRANSIENT_CODES
+
+
 def enrich_data(
     data: dict,
     cache: dict,
@@ -155,6 +228,8 @@ def enrich_data(
     api_key: str,
     analyzer=run_plain,
     now: str | None = None,
+    sleeper=time.sleep,
+    request_gap_seconds: float = REQUEST_GAP_SECONDS,
 ) -> tuple[dict, dict]:
     if not isinstance(data, dict) or not isinstance(data.get("videos"), list):
         raise EnrichError("videos.json 형식이 올바르지 않습니다.")
@@ -163,25 +238,35 @@ def enrich_data(
 
     stamp = now or iso_now()
     videos = data["videos"]
-    cache_hits = 0
+    cache_hits = cooldown_hits = 0
+
     for video in videos:
         vid = video.get("id") if isinstance(video, dict) else None
         if not isinstance(vid, str):
             continue
-        row = _cached_success(cache, vid)
-        if row:
-            video["gemini"] = _site_payload(row)
+        success = _cached_success(cache, vid)
+        if success:
+            video["gemini"] = _site_success(success)
             cache_hits += 1
+            continue
+        deferred_row = _active_deferred(cache, vid, stamp)
+        if deferred_row:
+            video["gemini"] = _site_deferred(deferred_row)
+            cooldown_hits += 1
 
-    selected = choose_new_candidates(videos, cache, limit)
-    attempts = successes = deferred = 0
+    selected = choose_new_candidates(videos, cache, limit, stamp)
+    attempts = successes = deferred = service_failures = 0
     stopped_after_error = False
     stop_code = None
+    consecutive_transient = 0
 
     if selected and not api_key.strip():
         raise EnrichError("GEMINI_API_KEY가 없어서 요청된 Gemini enrichment를 실행할 수 없습니다.")
 
     for video in selected:
+        if attempts > 0 and request_gap_seconds > 0:
+            sleeper(request_gap_seconds)
+
         vid = video["id"]
         attempts += 1
         report = analyzer(
@@ -189,43 +274,57 @@ def enrich_data(
             live=True,
             api_key=api_key,
         )
+
         if report.get("status") == "success" and isinstance(report.get("analysis"), dict):
             row = {
+                "status": "success",
                 "analysis": report["analysis"],
                 "analyzedAt": stamp,
                 "usage": report.get("usage") if isinstance(report.get("usage"), dict) else None,
             }
             cache["videos"][vid] = row
-            video["gemini"] = _site_payload(row)
+            video["gemini"] = _site_success(row)
             successes += 1
+            consecutive_transient = 0
             continue
 
-        error_code = report.get("apiStatus") or (
-            f"HTTP_{report.get('httpStatus')}" if report.get("httpStatus") else "ANALYSIS_FAILED"
-        )
-        video["gemini"] = {
-            "status": "deferred",
-            "version": ANALYSIS_VERSION,
-            "model": DEFAULT_MODEL,
-            "analyzedAt": stamp,
-            "errorCode": str(error_code)[:80],
-        }
+        code = _error_code(report)
+        row = {"status": "deferred", "deferredAt": stamp, "errorCode": code}
+        cache["videos"][vid] = row
+        video["gemini"] = _site_deferred(row)
         deferred += 1
-        stopped_after_error = True
-        stop_code = str(error_code)[:80]
-        break
+
+        if _is_hard_stop(report, code):
+            stopped_after_error = True
+            stop_code = code
+            break
+
+        if _is_transient(report, code):
+            service_failures += 1
+            consecutive_transient += 1
+            if consecutive_transient >= 2:
+                stopped_after_error = True
+                stop_code = code
+                break
+            continue
+
+        # Candidate-specific parse/input problems do not block the next candidate.
+        consecutive_transient = 0
 
     summary = {
         "method": ANALYSIS_VERSION,
         "model": DEFAULT_MODEL,
         "newCallLimit": limit,
         "cacheHits": cache_hits,
+        "cooldownHits": cooldown_hits,
         "selectedForNewAnalysis": len(selected),
         "attempts": attempts,
         "successes": successes,
         "deferred": deferred,
+        "serviceFailures": service_failures,
         "stoppedAfterError": stopped_after_error,
         "stopCode": stop_code,
+        "deferHours": DEFER_HOURS,
     }
     data["geminiSummary"] = summary
     return data, cache
@@ -258,10 +357,11 @@ def main(argv=None) -> int:
     s = data["geminiSummary"]
     print(
         "Gemini enrichment:",
-        f"cache {s['cacheHits']} / 신규시도 {s['attempts']} / 성공 {s['successes']} / 보류 {s['deferred']}"
+        f"cache {s['cacheHits']} / cooldown {s['cooldownHits']} / "
+        f"신규시도 {s['attempts']} / 성공 {s['successes']} / 보류 {s['deferred']}"
     )
     if s["stoppedAfterError"]:
-        print("Gemini enrichment는 첫 오류에서 추가 호출을 중단했습니다:", s["stopCode"])
+        print("Gemini enrichment는 보호 규칙에 따라 추가 호출을 중단했습니다:", s["stopCode"])
     return 0
 
 
