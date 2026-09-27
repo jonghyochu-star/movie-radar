@@ -6,8 +6,8 @@ class UiSourceTests(unittest.TestCase):
     def test_version_is_193(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
         self.assertIn('version">1.9.3<',html)
-        self.assertIn('styles.css?v=1.9.3',html)
-        self.assertIn('app.js?v=1.9.3',html)
+        self.assertIn('styles.css?v=1.9.4',html)
+        self.assertIn('app.js?v=1.9.4',html)
 
     def test_primary_navigation_is_simple_workflow(self):
         html=(ROOT/'site/index.html').read_text(encoding='utf-8')
@@ -69,6 +69,7 @@ class UiSourceTests(unittest.TestCase):
         core=(ROOT/'site/core.js').read_text(encoding='utf-8')
         collect=(ROOT/'scripts/collect.py').read_text(encoding='utf-8')
         self.assertIn('id="audience-filter"',html)
+        self.assertIn('value="shortlist"',html)
         self.assertIn('검증 영상',html)
         self.assertIn('audiencePanel',app)
         self.assertIn('audienceInfo',core)
