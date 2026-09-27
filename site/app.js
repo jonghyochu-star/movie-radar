@@ -3,7 +3,7 @@ const C=MovieCore, $=s=>document.querySelector(s);
 const prefix='movie-radar:v1:'+location.pathname.replace(/index\.html$/,'');
 const key=prefix+':records', consentKey=prefix+':consent';
 let storageBlocked=false;
-const filterKey=prefix+':filters-v1.9.1', collectionKey=prefix+':collection-v1.4';
+const filterKey=prefix+':filters-v1.9.4', legacyFilterKey=prefix+':filters-v1.9.1', collectionKey=prefix+':collection-v1.4';
 let filters=C.defaultFilters();
 const defaultCollectionPrefs=()=>({preset:'english_focus',customWeights:'en:70,ja:5,es:5,pt:5,fr:5,de:4,it:3,zh-Hans:3',retryRound:1});
 let collectionPrefs=defaultCollectionPrefs();
@@ -56,6 +56,8 @@ function videosForTab(){
  if(exploring)items=items.filter(v=>C.matchesFilters(v,historyRecord(v),filters));
  if(q)items=items.filter(v=>{const r=historyRecord(v);return [v.title,r.label,r.memo,v.channelTitle].join(' ').toLowerCase().includes(q);});
  const sort=$('#sort').value, profile=C.buildTasteProfile(allVideos(),state.records);
+ const shortlistMode=exploring&&filters.audience==='shortlist'&&!q;
+ if(shortlistMode)items=C.shortlistCandidates(items,state.records,profile);
  const ordinarySort=rows=>rows.sort((a,b)=>{if(sort==='ratio')return (C.ratio(b)??-1)-(C.ratio(a)??-1)||(b.views??-1)-(a.views??-1);if(sort==='recent')return (Date.parse(b.publishedAt)||0)-(Date.parse(a.publishedAt)||0);if(sort==='saved')return (Date.parse(historyRecord(b).updatedAt)||0)-(Date.parse(historyRecord(a).updatedAt)||0);return (b.views??-1)-(a.views??-1);});
  if(exploring&&sort==='priority'){
    // Preserve movie/TV evidence first, then learn from BOTH likes and dislikes without hiding candidates.
@@ -107,7 +109,18 @@ function updateCollectionCurrent(){
  $('#collection-current').textContent=current+' / '+next;
 }
 function loadFilters(){
- try {const saved=localStorage.getItem(filterKey);if(saved)filters=C.normalizeFilters(JSON.parse(saved));}catch{filters=C.defaultFilters();}
+ try {
+   const saved=localStorage.getItem(filterKey);
+   if(saved)filters=C.normalizeFilters(JSON.parse(saved));
+   else{
+     const legacy=localStorage.getItem(legacyFilterKey);
+     if(legacy){
+       const raw=JSON.parse(legacy);
+       if(raw&&raw.audience==='validated')raw.audience='shortlist';
+       filters=C.normalizeFilters(raw);
+     }
+   }
+ }catch{filters=C.defaultFilters();}
  syncFilterControls();
 }
 function syncFilterControls(){
@@ -128,10 +141,13 @@ function saveFilters(){
 function updateFilterSummary(){
  const exploring=['discover','review'].includes(tab);$('#filter-panel').hidden=!exploring;
  if(!exploring)return;
- const base=baseVideosForTab(),shown=base.filter(v=>C.matchesFilters(v,historyRecord(v),filters));
+ const base=baseVideosForTab(),eligible=base.filter(v=>C.matchesFilters(v,historyRecord(v),filters));
+ const profile=C.buildTasteProfile(allVideos(),state.records);
+ const shown=filters.audience==='shortlist'?C.shortlistCandidates(eligible,state.records,profile):eligible;
  const aud={surging:0,mega:0,proven:0,strong:0,watch:0,unknown:0};
  for(const v of shown){const s=C.audienceInfo(v).status;aud[s]=(aud[s]||0)+1;}
- $('#filter-summary').textContent=`표시 ${shown.length}개 · 급상승 ${aud.surging||0} · 1000만+ ${aud.mega||0} · 500만+ ${aud.proven||0} · 게시 구간 강반응 ${aud.strong||0}. 자세한 수집 근거는 아래 ‘수집·필터·백업 설정’에서 확인할 수 있습니다.`;
+ const prefixText=filters.audience==='shortlist'?`추천 압축 ${shown.length}/${eligible.length}개`:`표시 ${shown.length}개`;
+ $('#filter-summary').textContent=`${prefixText} · 급상승 ${aud.surging||0} · 1000만+ ${aud.mega||0} · 500만+ ${aud.proven||0} · 게시 구간 강반응 ${aud.strong||0}. 추천 압축은 시장 검증·내 평가 기록·Gemini 장면 확인·탐색 다양성을 섞으며, 전체 후보는 반응 필터에서 다시 볼 수 있습니다.`;
 }
 function audiencePanel(v){
  const a=C.audienceInfo(v);if(sample(v))return '';
