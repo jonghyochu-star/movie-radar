@@ -55,7 +55,7 @@ class GeminiEnrichTests(unittest.TestCase):
         self.assertEqual(out["videos"][0]["gemini"]["analysis"]["story_pattern"], "재회")
         self.assertEqual(out["geminiSummary"]["cacheHits"], 1)
 
-    def test_selection_prefers_validated_and_reserves_exploration_slot(self):
+    def test_limit_three_spends_calls_on_validated_candidates_first(self):
         rows = [
             video("Validated01", 20_000_000, True),
             video("Validated02", 10_000_000, True),
@@ -63,9 +63,21 @@ class GeminiEnrichTests(unittest.TestCase):
             video("Explore0001", 4_000_000, False),
         ]
         chosen = M.choose_new_candidates(rows, M.empty_cache(), 3, self.NOW)
-        self.assertEqual(len(chosen), 3)
+        self.assertEqual([x["id"] for x in chosen], ["Validated01", "Validated02", "Validated03"])
+
+    def test_limit_five_reserves_one_exploration_slot(self):
+        rows = [
+            video("Validated01", 20_000_000, True),
+            video("Validated02", 10_000_000, True),
+            video("Validated03", 8_000_000, True),
+            video("Validated04", 7_000_000, True),
+            video("Validated05", 6_000_000, True),
+            video("Explore0001", 4_000_000, False),
+        ]
+        chosen = M.choose_new_candidates(rows, M.empty_cache(), 5, self.NOW)
+        self.assertEqual(len(chosen), 5)
         self.assertIn("Explore0001", [x["id"] for x in chosen])
-        self.assertIn("Validated01", [x["id"] for x in chosen])
+        self.assertNotIn("Validated05", [x["id"] for x in chosen])
 
     def test_success_is_cached_and_reused_next_run(self):
         data = {"videos": [video("AbCdEfGhI01", 9_000_000, True)]}
@@ -186,6 +198,31 @@ class GeminiEnrichTests(unittest.TestCase):
             path.write_text(__import__("json").dumps(raw), encoding="utf-8")
             loaded = M.load_cache(path)
             self.assertEqual(loaded["videos"]["AbCdEfGhI01"]["status"], "deferred")
+
+    def test_validated_deferred_candidate_is_carried_into_next_batch(self):
+        old = video("AbCdEfGhI01", 9_000_000, True)
+        old.update({"title": "strong old candidate", "channelId": "chan-old"})
+        data = {"videos": [old]}
+        cache = M.empty_cache()
+
+        def fail_once(url, **kwargs):
+            return {"status": "failed", "httpStatus": 503, "apiStatus": "UNAVAILABLE"}
+
+        _, cache = M.enrich_data(
+            data, cache, limit=1, api_key="secret", analyzer=fail_once,
+            now="2026-09-27T10:00:00Z", sleeper=lambda _: None
+        )
+        self.assertIn("carryover", cache["videos"]["AbCdEfGhI01"])
+
+        new_data = {"videos": [video("AbCdEfGhI02", 8_000_000, True)]}
+        out, _ = M.enrich_data(
+            new_data, cache, limit=0, api_key="",
+            now="2026-09-27T12:00:00Z", sleeper=lambda _: None
+        )
+        self.assertEqual(out["videos"][0]["id"], "AbCdEfGhI01")
+        self.assertTrue(out["videos"][0]["geminiCarryover"])
+        self.assertEqual(out["videos"][0]["gemini"]["status"], "deferred")
+        self.assertEqual(out["geminiSummary"]["carryoverCandidates"], 1)
 
     def test_missing_key_only_errors_when_new_call_is_needed(self):
         data = {"videos": [video("AbCdEfGhI01", 9_000_000, True)]}
