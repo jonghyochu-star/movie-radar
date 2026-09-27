@@ -105,6 +105,9 @@
 .card .meta{margin-bottom:7px}
 .audience-strip.compact{margin:5px 0 8px}
 .audience-strip.compact>span{font-size:10px;padding:4px 7px}
+.gemini-strip{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0 0 8px;padding:6px 8px;border:1px solid var(--line);border-radius:9px;background:#faf9ff;font-size:10px;color:#5e5675}
+.gemini-strip strong{font-size:10px;color:#5d46a8}
+.gemini-strip span{line-height:1.45}
 .key-stats{display:flex;align-items:baseline;gap:7px;padding:8px 0 10px;border-bottom:1px solid #edf0f5;margin-bottom:10px}
 .key-stats strong{font-size:20px;letter-spacing:-.6px}
 .key-stats>span{font-size:10px;color:var(--muted)}
