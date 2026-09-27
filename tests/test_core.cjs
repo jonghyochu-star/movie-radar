@@ -204,3 +204,35 @@ test('1.9.1 Korean and non-screen exclusions still block production candidates',
  let s=C.apply(C.blank(),v,'origin_korean');assert.throws(()=>C.apply(s,v,'candidate'));
  s=C.apply(C.blank(),v,'media_no');assert.throws(()=>C.apply(s,v,'candidate'));
 });
+
+
+test('Gemini controlled descriptors become stable taste themes',()=>{
+ const x={...v,channelId:'chan-ai',discoveryRoutes:['open'],gemini:{status:'success',analysis:{
+  story_pattern:'재회',primary_relationship:'부부·연인',emotional_payoff:['감동','따뜻함'],story_features:['자유태그']
+ }}};
+ assert.deepEqual(C.themesOf(x),['이야기:재회','관계:부부·연인','감정:감동','감정:따뜻함']);
+ const s=C.signalsFromVideo(x);assert.equal(s.channelId,'chan-ai');assert.deepEqual(s.routes,['open']);
+});
+
+test('compact taste signals survive expired API cache and export',()=>{
+ const old={...v,fetchedAt:'2020-01-01T00:00:00Z',channelId:'chan-old',discoveryRoutes:['familiar'],gemini:{status:'success',analysis:{
+  story_pattern:'가족애',primary_relationship:'부모-자녀',emotional_payoff:['따뜻함']
+ }}};
+ let s=C.apply(C.blank(),old,'like');
+ s=C.normalize(s,Date.parse('2026-09-27T00:00:00Z'));
+ const r=s.records[v.id];assert.equal(r.cache,null);assert.equal(r.signals.channelId,'chan-old');
+ assert(r.signals.themes.includes('이야기:가족애'));
+ const backup=C.exportData(s);assert(!Object.hasOwn(backup.records[v.id],'cache'));assert(backup.records[v.id].signals.themes.includes('관계:부모-자녀'));
+ const p=C.buildTasteProfile([],backup.records);assert.equal(p.liked.themes['이야기:가족애'],1);
+});
+
+test('production candidate contributes one extra positive vote',()=>{
+ const x={...v,channelId:'chan-strong',discoveryRoutes:['open'],gemini:{status:'success',analysis:{
+  story_pattern:'재회',primary_relationship:'부부·연인',emotional_payoff:['감동']
+ }}};
+ let s=C.apply(C.blank(),x,'candidate');
+ const p=C.buildTasteProfile([],s.records);
+ assert.equal(p.liked.channels['chan-strong'],2);
+ assert.equal(p.liked.themes['이야기:재회'],2);
+ assert.equal(p.usableLikes,1);
+});
