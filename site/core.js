@@ -8,8 +8,15 @@
   const MAX_AGE = 29 * 86400000;
   const validId = id => typeof id === 'string' && /^(?:[A-Za-z0-9_-]{11}|demo-[1-9][0-9]*)$/.test(id);
   const blank = () => ({schema:1, records:Object.create(null), batchFeedback:[]});
+  function normalizeSignals(raw) {
+    if(!raw||typeof raw!=='object'||Array.isArray(raw))return null;
+    const channelId=typeof raw.channelId==='string'?raw.channelId.trim().slice(0,120):'';
+    const cleanList=(value,limit,maxLen)=>Array.isArray(value)?[...new Set(value.filter(x=>typeof x==='string'&&x.trim()).map(x=>x.trim().slice(0,maxLen)))].slice(0,limit):[];
+    const routes=cleanList(raw.routes,6,40),themes=cleanList(raw.themes,12,100);
+    return channelId||routes.length||themes.length?{channelId,routes,themes}:null;
+  }
   function record(id) {
-    return {id,rating:null,dislikeReason:null,freshness:null,story:null,legacyReason:null,stage:null,origin:'unknown',media:'unknown',format:'unknown',memo:'',label:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),cache:null};
+    return {id,rating:null,dislikeReason:null,freshness:null,story:null,legacyReason:null,stage:null,origin:'unknown',media:'unknown',format:'unknown',memo:'',label:'',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),cache:null,signals:null};
   }
   function normalize(raw, now=Date.now()) {
     if (!raw || raw.schema !== 1 || typeof raw.records !== 'object' || !raw.records || Array.isArray(raw.records)) throw Error('Movie Radar 백업 형식이 아닙니다.');
@@ -36,6 +43,8 @@
       for(const k of ['createdAt','updatedAt']) if(typeof r[k]==='string' && Number.isFinite(Date.parse(r[k]))) x[k]=r[k];
       const t=Date.parse(r.cache?.fetchedAt);
       if(r.cache?.id===id && Number.isFinite(t) && now-t<MAX_AGE && t<=now+60000) x.cache=r.cache;
+      x.signals=normalizeSignals(r.signals);
+      if(!x.signals&&x.cache)x.signals=signalsFromVideo(x.cache);
       out.records[id]=x;
     }
     if(Array.isArray(raw.batchFeedback)){
@@ -79,6 +88,8 @@
       case 'media_reset': r.media='unknown'; break;
       default: throw Error('지원하지 않는 동작입니다.');
     }
+    const compactSignals=signalsFromVideo(video);
+    if(compactSignals)r.signals=compactSignals;
     if(video.fetchedAt)r.cache=video;
     r.updatedAt=now;next.records[video.id]=r;return next;
   }
@@ -256,6 +267,15 @@
 
   const TASTE_ROUTES=new Set(['familiar','expand','work','open']);
   function themesOf(v={}) {
+    const analysis=v?.gemini?.status==='success'&&v.gemini.analysis&&typeof v.gemini.analysis==='object'?v.gemini.analysis:null;
+    if(analysis){
+      const out=[];
+      const add=(prefix,value)=>{if(typeof value==='string'&&value&& !['기타','불명확','uncertain'].includes(value)){const x=prefix+value;if(!out.includes(x))out.push(x);}};
+      add('이야기:',analysis.story_pattern);
+      add('관계:',analysis.primary_relationship);
+      for(const value of Array.isArray(analysis.emotional_payoff)?analysis.emotional_payoff:[])add('감정:',value);
+      if(out.length)return out.slice(0,12);
+    }
     const direct=Array.isArray(v.discoveryLabels)?v.discoveryLabels.filter(x=>typeof x==='string'&&x.trim()).map(x=>x.trim().slice(0,80)):[];
     if(direct.length)return [...new Set(direct)];
     const text=String(v.source||'');
@@ -264,7 +284,13 @@
     for(const m of text.matchAll(re)){const x=String(m[1]||'').trim();if(x&&!out.includes(x))out.push(x);}
     return out;
   }
-  function _bump(map,key){if(typeof key==='string'&&key)map[key]=(map[key]||0)+1;}
+  function signalsFromVideo(v={}) {
+    const channelId=typeof v.channelId==='string'?v.channelId:'';
+    const routes=routesOf(v).filter(route=>TASTE_ROUTES.has(route));
+    const themes=themesOf(v);
+    return normalizeSignals({channelId,routes,themes});
+  }
+  function _bump(map,key,amount=1){if(typeof key==='string'&&key)map[key]=(map[key]||0)+Math.max(1,Number(amount)||1);}
   function _signal(pos={},neg={},key){const a=Number(pos[key]||0),b=Number(neg[key]||0);return a>b?1:b>a?-1:0;}
   function buildTasteProfile(videos=[],records={}) {
     const byId=new Map((Array.isArray(videos)?videos:[]).filter(v=>v&&typeof v.id==='string').map(v=>[v.id,v]));
@@ -284,11 +310,16 @@
         if(reason)dislikeReasonCounts[reason]++;else untypedDislikes++;
         if(reason!=='not_my_tone')continue;
       }
-      const v=byId.get(id)||r.cache;if(!v||typeof v!=='object')continue;
+      const v=byId.get(id)||r.cache;
+      const signals=v&&typeof v==='object'?signalsFromVideo(v):normalizeSignals(r.signals);
+      if(!signals)continue;
       const bag=isLike?liked:disliked;let used=false;
-      if(typeof v.channelId==='string'&&v.channelId){_bump(bag.channels,v.channelId);used=true;}
-      for(const route of routesOf(v))if(TASTE_ROUTES.has(route)){_bump(bag.routes,route);used=true;}
-      for(const theme of themesOf(v)){_bump(bag.themes,theme);used=true;}
+      // A production candidate/done item is the strongest explicit positive signal.
+      // Give it one additional vote without turning this into an opaque score.
+      const weight=isLike&&['candidate','done'].includes(r.stage)?2:1;
+      if(signals.channelId){_bump(bag.channels,signals.channelId,weight);used=true;}
+      for(const route of signals.routes)if(TASTE_ROUTES.has(route)){_bump(bag.routes,route,weight);used=true;}
+      for(const theme of signals.themes){_bump(bag.themes,theme,weight);used=true;}
       if(used){if(isLike)usableLikes++;else usableDislikes++;}
     }
     return {likedCount,dislikedCount,usableLikes,usableDislikes,excludedFromTaste,untypedDislikes,dislikeReasonCounts,liked,disliked,
@@ -361,5 +392,5 @@
     return roundRobin([...groups.values()].map(g=>balanceLanguage?balanceVideos(g,languageOrder):g));
   }
 
-  return {formatOf, shortsInfo, routesOf, themesOf, ROUTE_LABELS, mixRoutes, recordBatchFeedback, buildTasteProfile, preferenceClass, personalizedBlend, tasteMatch, candidateTier, candidatePriorityGroup, screenGateInfo, audienceInfo, audienceRank, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, freshnessOf, storyOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, broadFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
+  return {formatOf, shortsInfo, routesOf, themesOf, signalsFromVideo, ROUTE_LABELS, mixRoutes, recordBatchFeedback, buildTasteProfile, preferenceClass, personalizedBlend, tasteMatch, candidateTier, candidatePriorityGroup, screenGateInfo, audienceInfo, audienceRank, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, freshnessOf, storyOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, broadFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
 });
