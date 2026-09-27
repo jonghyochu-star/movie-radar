@@ -159,14 +159,23 @@ function audiencePanel(v){
  if(!badges.length)badges.push('<span class="audience-watch">관찰 중</span>');
  return `<div class="audience-strip compact">${badges.join('')}</div>`;
 }
+function geminiPanel(v){
+ const g=v?.gemini;if(!g||g.status!=='success'||!g.analysis||typeof g.analysis!=='object')return '';
+ const a=g.analysis,payoff=Array.isArray(a.emotional_payoff)?a.emotional_payoff.filter(x=>typeof x==='string'&&x&&!['기타','불명확'].includes(x)).slice(0,3):[];
+ const parts=[a.story_pattern,a.primary_relationship,payoff.join('·')].filter(x=>typeof x==='string'&&x&&!['기타','불명확','uncertain'].includes(x));
+ if(!parts.length)return '<div class="gemini-strip"><strong>Gemini 장면 확인</strong></div>';
+ const transcript=a.transcript_sufficiency==='unlikely'?' · 화면 의존 높음':a.transcript_sufficiency==='likely'?' · 자막 1차 가능':'';
+ return `<div class="gemini-strip"><strong>Gemini 장면 확인</strong><span>${parts.map(esc).join(' · ')}${esc(transcript)}</span></div>`;
+}
 function priorityPanel(v,r){
  const tier=C.candidateTier(v,r),profile=C.buildTasteProfile(allVideos(),state.records),pref=C.preferenceClass(v,profile),gate=C.screenGateInfo(v,r);
- const labels={priority:'영화·드라마 우선',review:'게이트 확인 필요',low:'비영화 의심'};
- const notes={priority:`${gate.label}. YouTube 주제/메타데이터 근거이며 실제 장면을 AI가 본 결과는 아닙니다.`,review:'영화·드라마 수집 게이트가 확인되지 않아 직접 확인이 필요합니다.',low:'제품·게임·기타 비영화 자료 단서가 강합니다.'};
+ const geminiDecision=v?.gemini?.status==='success'?v.gemini.analysis?.screen_scene_decision:null;
+ const labels={priority:geminiDecision==='yes'?'Gemini 장면 확인':'영화·드라마 우선',review:'게이트 확인 필요',low:geminiDecision==='no'?'Gemini 비영화 의심':'비영화 의심'};
+ const notes={priority:geminiDecision==='yes'?'Gemini가 실제 영상 장면을 확인해 영화·드라마 계열 장면으로 분류했습니다.':`${gate.label}. YouTube 주제/메타데이터 기반 우선 후보입니다.`,review:'영화·드라마 수집 게이트가 확인되지 않아 직접 확인이 필요합니다.',low:geminiDecision==='no'?'Gemini의 영상 분석에서 각본 장면이 아닌 것으로 분류됐습니다. 자동 삭제하지 않으며 사용자 확인이 우선합니다.':'제품·게임·기타 비영화 자료 단서가 강합니다.'};
  const prefLabels={close:'♥ 취향 가까움',adjacent:'↗ 인접한 새 결',explore:'✦ 새로운 결',low:'↓ 낮은 적중 경로'};
  const reason=[...pref.positives,...pref.negatives].join(' · ')||'좋아요와 명확한 “내 결 아님” 기록에 직접 겹치는 단서가 없어 새로운 탐색으로 남겼습니다.';
  const taste=filters.tasteAssist?`<span class="taste pref-${esc(pref.bucket)}" title="${esc(reason)}. 좋아요와 이유가 명확한 ‘내 결 아님’만 취향 순서 참고 신호로 쓰며 후보를 자동 제외하지 않습니다.">${esc(prefLabels[pref.bucket])}</span>`:'';
- const gateBadge=tier==='priority'?`<span title="수집 게이트: ${esc(gate.label)}">${esc(gate.label)}</span>`:'';
+ const gateBadge=tier==='priority'&&geminiDecision!=='yes'?`<span title="수집 게이트: ${esc(gate.label)}">${esc(gate.label)}</span>`:'';
  return `<div class="priority-strip ${esc(tier)}"><span title="${esc(notes[tier])}">${esc(labels[tier])}</span>${gateBadge}${taste}</div>`;
 }
 function evidencePanel(v,r){
@@ -264,6 +273,7 @@ function renderCard(v){
    <div class="meta"><span>${esc(v.channelTitle||'채널 미확인')}</span><span>${esc(duration)}</span></div>
    <h4>${esc(v.title||'저장된 YouTube 링크')}</h4>
    ${audiencePanel(v)}
+   ${geminiPanel(v)}
    <div class="key-stats"><strong title="${esc(fmt(v.views))}">${short(v.views)}</strong><span>조회수</span><span class="posted">게시 ${esc(dt(v.publishedAt))}</span></div>
    ${labels.length?`<div class="record-chips">${labels.map(x=>`<span>${esc(x)}</span>`).join('')}${structural}</div>`:structural}
    <a class="open-link main-open" href="https://www.youtube.com/watch?v=${encodeURIComponent(v.id)}" target="_blank" rel="noopener noreferrer">YouTube 원본 보기 ↗</a>
