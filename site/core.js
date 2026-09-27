@@ -350,6 +350,10 @@
   function candidateTier(v={},r={}) {
     const kind=screenKind(v,r);
     if(kind==='non_screen')return 'low';
+    const geminiDecision=v?.gemini?.status==='success'?v.gemini.analysis?.screen_scene_decision:null;
+    // AI "no" is a ranking signal only; it never mutates or deletes the user's record.
+    if(geminiDecision==='no')return 'low';
+    if(geminiDecision==='yes')return 'priority';
     if(screenGateInfo(v,r).ok)return 'priority';
     return 'review';
   }
