@@ -95,6 +95,12 @@ test('candidate tiers are evidence labels not scores',()=>{
  assert.equal(C.candidateTier({...fvideo,screenKind:'non_screen'},{}),'low');
  assert.equal(C.candidateTier({...fvideo,screenKind:'unknown'},{media:'screen'}),'priority');
 });
+test('Gemini screen no only lowers ranking and never mutates manual state',()=>{
+ const x={...fvideo,screenKind:'film',screenGate:['movie'],gemini:{status:'success',analysis:{screen_scene_decision:'no'}}};
+ assert.equal(C.candidateTier(x,{}),'low');
+ assert.equal(C.ready(x,{}),true);
+ assert.equal(C.mediaOf({}), 'unknown');
+});
 test('taste profile uses likes only and available context',()=>{
  const videos=[{...fvideo,id:'LikeVideo01',channelId:'chan-a',discoveryRoutes:['familiar']},{...fvideo,id:'BadVideo0001',channelId:'chan-b',discoveryRoutes:['open']}];
  let records={};records['LikeVideo01']={rating:'like'};records['BadVideo0001']={rating:'dislike'};
