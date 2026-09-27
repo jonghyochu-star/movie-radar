@@ -158,7 +158,7 @@
     return {code,source,basis,badge,audio,declared};
   }
   const preferredLanguages=()=>['en','ja','es','pt','fr','de','it','zh'];
-  const defaultFilters=()=>({schema:1,maxSubscribers:0,minSeconds:0,maxSeconds:180,minViews:0,content:'screen_gate',audience:'validated',languages:preferredLanguages(),includeUnknownLanguage:true,balance:true,route:'all',mixDiscovery:true,shorts:'any',tasteAssist:true});
+  const defaultFilters=()=>({schema:1,maxSubscribers:0,minSeconds:0,maxSeconds:180,minViews:0,content:'screen_gate',audience:'shortlist',languages:preferredLanguages(),includeUnknownLanguage:true,balance:true,route:'all',mixDiscovery:true,shorts:'any',tasteAssist:true});
   const broadFilters=()=>({schema:1,maxSubscribers:0,minSeconds:0,maxSeconds:180,minViews:0,content:'all',audience:'all',languages:Object.keys(LANGUAGE_LABELS).filter(x=>x!=='unknown'),includeUnknownLanguage:true,balance:true,route:'all',mixDiscovery:true,shorts:'any',tasteAssist:true});
   function normalizeFilters(raw={}) {
     const f=defaultFilters(), numberKeys={maxSubscribers:[0,1000000000],minSeconds:[0,180],maxSeconds:[0,180],minViews:[0,100000000000]};
@@ -166,7 +166,7 @@
     // Empty/invalid UI inputs never make NaN comparisons silently accept data.
     if(f.minSeconds>f.maxSeconds){f.minSeconds=0;f.maxSeconds=180;}
     if(['screen_gate','review','screen','film','all'].includes(raw.content))f.content=raw.content==='review'?'screen_gate':raw.content;
-    if(['validated','surging','proven','all'].includes(raw.audience))f.audience=raw.audience;
+    if(['shortlist','validated','surging','proven','all'].includes(raw.audience))f.audience=raw.audience;
     if(Array.isArray(raw.languages))f.languages=[...new Set(raw.languages.filter(x=>typeof x==='string'&&x!=='unknown'&&Object.hasOwn(LANGUAGE_LABELS,x)))];
     if(raw.route==='all'||Object.hasOwn(ROUTE_LABELS,raw.route))f.route=raw.route;
     if(['any','hinted','confirmed'].includes(raw.shorts))f.shorts=raw.shorts;
@@ -367,6 +367,76 @@
     const base={close:0,adjacent:2,explore:4,low:5}[pref.bucket]??4;
     return Math.min(5,base+tierOffset);
   }
+
+  function shortlistLimit(count=0) {
+    const n=Math.max(0,Number(count)||0);
+    if(n<=6)return n;
+    if(n<=12)return Math.min(n,8);
+    if(n<=24)return 10;
+    return 12;
+  }
+  function _views(v={}) {return Number.isFinite(v.views)?v.views:0;}
+  function _aiQuality(a={},b={}) {
+    const ar=a?.gemini?.analysis||{},br=b?.gemini?.analysis||{};
+    const complete=x=>({complete:0,partial:1,moment_only:2,uncertain:3})[x]??3;
+    const confidence=x=>({high:0,medium:1,low:2})[x]??2;
+    return complete(ar.story_completeness)-complete(br.story_completeness)
+      +(ar.payoff_clear===br.payoff_clear?0:(ar.payoff_clear?-1:1))
+      +(ar.setup_clear===br.setup_clear?0:(ar.setup_clear?-1:1))
+      +confidence(ar.confidence)-confidence(br.confidence)
+      ||_views(b)-_views(a);
+  }
+  function shortlistCandidates(items=[],records={},profile={},limit=null) {
+    const unique=[],seenIds=new Set();
+    for(const v of Array.isArray(items)?items:[]){
+      if(!v||typeof v.id!=='string'||seenIds.has(v.id))continue;
+      seenIds.add(v.id);unique.push(v);
+    }
+    if(!unique.length)return [];
+    const requested=Number.isInteger(limit)?Math.min(15,Math.max(5,limit)):shortlistLimit(unique.length);
+    const target=Math.min(unique.length,requested);
+    if(unique.length<=target)return unique.slice();
+
+    const viable=unique.filter(v=>candidateTier(v,records[v.id]||{})!=='low');
+    const pool=viable.length>=Math.min(5,target)?viable:unique;
+    const selected=[],selectedIds=new Set();
+    const addVideo=v=>{if(v&&!selectedIds.has(v.id)&&selected.length<target){selected.push(v);selectedIds.add(v.id);return true;}return false;};
+    const pick=queue=>{while(queue.length){const v=queue.shift();if(addVideo(v))return true;}return false;};
+    const byMarket=(a,b)=>audienceRank(a)-audienceRank(b)||_views(b)-_views(a)||(Date.parse(b.publishedAt)||0)-(Date.parse(a.publishedAt)||0);
+
+    const market=pool.filter(v=>audienceInfo(v).validated).sort(byMarket);
+    const hasNonMarket=pool.some(v=>!audienceInfo(v).validated);
+    const marketReserve=target>=8&&hasNonMarket?2:0;
+    const marketQuota=Math.min(market.length,Math.max(0,target-marketReserve));
+    market.slice(0,marketQuota).forEach(addVideo);
+
+    const remaining=()=>pool.filter(v=>!selectedIds.has(v.id));
+    const tasteReady=Number(profile.usableLikes||0)+Number(profile.usableDislikes||0)>=5;
+    const close=balanceVideos(remaining().filter(v=>tasteReady&&preferenceClass(v,profile).bucket==='close').sort(byMarket));
+    const adjacent=balanceVideos(remaining().filter(v=>tasteReady&&preferenceClass(v,profile).bucket==='adjacent').sort(byMarket));
+    const ai=balanceVideos(remaining().filter(v=>v?.gemini?.status==='success'&&v.gemini.analysis?.screen_scene_decision==='yes').sort(_aiQuality));
+    const marketRest=market.filter(v=>!selectedIds.has(v.id));
+    const explore=balanceVideos(remaining().sort((a,b)=>{
+      const ta=candidateTier(a,records[a.id]||{}),tb=candidateTier(b,records[b.id]||{});
+      const tr={priority:0,review:1,low:2};
+      return (tr[ta]??2)-(tr[tb]??2)||_views(b)-_views(a)||(Date.parse(b.publishedAt)||0)-(Date.parse(a.publishedAt)||0);
+    }));
+
+    const queues={close,ai,adjacent,explore,market:marketRest};
+    const pattern=['close','ai','explore','adjacent','explore','market'];
+    let progress=true;
+    while(selected.length<target&&progress){
+      progress=false;
+      for(const key of pattern){
+        if(selected.length>=target)break;
+        if(pick(queues[key]))progress=true;
+      }
+    }
+    if(selected.length<target){
+      for(const v of pool.slice().sort(byMarket)){if(selected.length>=target)break;addVideo(v);}
+    }
+    return selected;
+  }
   function personalizedBlend(items=[],profile={},tasteAssist=true) {
     const rows=Array.isArray(items)?items.slice():[];
     if(!tasteAssist||Number(profile.usableLikes||0)+Number(profile.usableDislikes||0)<5)return rows;
@@ -399,5 +469,5 @@
     return roundRobin([...groups.values()].map(g=>balanceLanguage?balanceVideos(g,languageOrder):g));
   }
 
-  return {formatOf, shortsInfo, routesOf, themesOf, signalsFromVideo, ROUTE_LABELS, mixRoutes, recordBatchFeedback, buildTasteProfile, preferenceClass, personalizedBlend, tasteMatch, candidateTier, candidatePriorityGroup, screenGateInfo, audienceInfo, audienceRank, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, freshnessOf, storyOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, broadFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
+  return {formatOf, shortsInfo, routesOf, themesOf, signalsFromVideo, ROUTE_LABELS, mixRoutes, recordBatchFeedback, buildTasteProfile, preferenceClass, personalizedBlend, tasteMatch, candidateTier, candidatePriorityGroup, shortlistLimit, shortlistCandidates, screenGateInfo, audienceInfo, audienceRank, MAX_AGE, validId, blank, record, normalize, apply, ratio, exportData, merge, parseLink, originOf, isSample, ready, needsReview, mediaOf, freshnessOf, storyOf, LANGUAGE_LABELS, languageInfo, preferredLanguages, defaultFilters, broadFilters, normalizeFilters, screenKind, filterReasons, matchesFilters, filterCounts, balanceVideos};
 });
