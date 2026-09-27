@@ -50,7 +50,7 @@ test('media confirmation does not confirm original country and country confirmat
 test('v11 migrations preserve candidates notes',()=>{const r={schema:1,records:{[v.id]:{rating:'like',origin:'non_korean',stage:'candidate',memo:'keep'}}};const x=C.normalize(r).records[v.id];assert.equal(x.media,'unknown');assert.equal(x.stage,'candidate');assert.equal(x.memo,'keep');assert(C.ready(v,x));});
 test('backup includes media no metadata',()=>{const data=C.exportData(C.apply(C.blank(),v,'media_no'));assert.equal(data.records[v.id].media,'not_screen');assert.equal(data.records[v.id].cache,undefined);});
 test('filter preferences sanitize',()=>{const f=C.normalizeFilters({maxSubscribers:NaN,minSeconds:180,maxSeconds:10,languages:['xx','en','en','__proto__'],balance:'yes'});assert.equal(f.maxSubscribers,0);assert.equal(f.minSeconds,0);assert.equal(f.maxSeconds,180);assert.deepEqual(f.languages,['en']);assert.equal(f.balance,true);});
-test('funnel shows which restriction causes zero',()=>{const items=[fvideo,{...fvideo,id:'AbCdEfGhI02',subscribers:20000},{...fvideo,id:'AbCdEfGhI03',language:'hi'},{...fvideo,id:'AbCdEfGhI04',screenKind:'unknown'}];const n=C.filterCounts(items,{},defaults());assert.deepEqual(n,{total:4,content:3,audience:3,subscribers:3,language:2,duration:2,views:2,route:2,format:2});});
+test('funnel shows which restriction causes zero',()=>{const items=[fvideo,{...fvideo,id:'AbCdEfGhI02',subscribers:20000},{...fvideo,id:'AbCdEfGhI03',language:'hi'},{...fvideo,id:'AbCdEfGhI04',screenKind:'unknown'}];const n=C.filterCounts(items,{}, {...defaults(),audience:'validated'});assert.deepEqual(n,{total:4,content:3,audience:3,subscribers:3,language:2,duration:2,views:2,route:2,format:2});});
 test('language balancing interleaves, does not lose or duplicate',()=>{const items=[{id:'1',language:'en',languageSource:'title',channelId:'a'},{id:'2',language:'en',languageSource:'title',channelId:'a'},{id:'3',language:'en',languageSource:'title',channelId:'b'},{id:'4',language:'ja',languageSource:'title',channelId:'c'},{id:'5',language:'ja',languageSource:'title',channelId:'c'}];const result=C.balanceVideos(items,['en','ja']);assert.deepEqual(result.map(v=>v.id),['1','4','3','5','2']);assert.equal(new Set(result.map(v=>v.id)).size,items.length);});
 test('language balancing handles empty, unknown, missing channel',()=>{assert.deepEqual(C.balanceVideos([]),[]);const items=[{id:'1'},{id:'2',language:'ar'}];assert.equal(C.balanceVideos(items).length,2);});
 test('display filters do not mutate records',()=>{const s=C.apply(C.blank(),v,'like');const before=JSON.stringify(s);C.matchesFilters(fvideo,s.records[v.id],defaults());C.filterCounts([fvideo],s.records,defaults());assert.equal(JSON.stringify(s),before);});
@@ -184,8 +184,10 @@ test('1.9.1 only explicit tone dislikes teach negative taste',()=>{
 test('1.9 audience filter uses collector validation and never lifetime average',()=>{
  const strong={...fvideo,audience:{status:'strong',validated:true,surging:false,fastStrong:true,cumulativeProven:false,mega:false,ageHours:20,floorViews:500000,deltas:{},lifetimeAverageUsed:false}};
  const weak={...fvideo,id:'AbCdEfGhI09',audience:{status:'watch',validated:false,surging:false,fastStrong:false,cumulativeProven:false,mega:false,ageHours:20,floorViews:500000,deltas:{},lifetimeAverageUsed:false}};
- assert(C.matchesFilters(strong,{},defaults()));
- assert(!C.matchesFilters(weak,{},defaults()));
+ const validated={...defaults(),audience:'validated'};
+ assert(C.matchesFilters(strong,{},validated));
+ assert(!C.matchesFilters(weak,{},validated));
+ assert(C.matchesFilters(weak,{},defaults()));
  assert(C.matchesFilters(weak,{},{...defaults(),audience:'all'}));
  assert.equal(C.audienceInfo(strong).lifetimeAverageUsed,false);
 });
@@ -214,6 +216,41 @@ test('1.9.1 quality flags toggle without becoming tone dislikes',()=>{
 test('1.9.1 Korean and non-screen exclusions still block production candidates',()=>{
  let s=C.apply(C.blank(),v,'origin_korean');assert.throws(()=>C.apply(s,v,'candidate'));
  s=C.apply(C.blank(),v,'media_no');assert.throws(()=>C.apply(s,v,'candidate'));
+});
+
+
+test('1.9.4 shortlist is default but does not hard-filter watch candidates',()=>{
+ assert.equal(C.defaultFilters().audience,'shortlist');
+ const watch={...fvideo,audience:{status:'watch',validated:false}};
+ assert(C.matchesFilters(watch,{},C.defaultFilters()));
+});
+
+test('1.9.4 shortlist compresses a 40-item pool to 12 and keeps market winners',()=>{
+ const rows=[];
+ for(let i=0;i<3;i++)rows.push({...fvideo,id:`Market0000${i}`,views:9000000-i*1000000,channelId:`m${i}`,screenGate:['movie'],audience:{status:i===0?'mega':'proven',validated:true,mega:i===0,cumulativeProven:true}});
+ for(let i=0;i<37;i++)rows.push({...fvideo,id:`Watch${String(i).padStart(6,'0')}`,views:1000000-i*10000,channelId:`w${i%8}`,screenGate:['movie'],audience:{status:'watch',validated:false}});
+ const out=C.shortlistCandidates(rows,{},C.buildTasteProfile([],{}));
+ assert.equal(out.length,12);
+ for(const id of ['Market00000','Market00001','Market00002'])assert(out.some(v=>v.id===id));
+ assert.equal(new Set(out.map(v=>v.id)).size,12);
+});
+
+test('1.9.4 shortlist includes Gemini-confirmed scene when it is not already a market winner',()=>{
+ const market={...fvideo,id:'Market00001',views:6000000,channelId:'m',screenGate:['movie'],audience:{status:'proven',validated:true,cumulativeProven:true}};
+ const ai={...fvideo,id:'AiScene0001',views:400000,channelId:'ai',screenGate:['movie'],audience:{status:'watch',validated:false},gemini:{status:'success',analysis:{screen_scene_decision:'yes',story_completeness:'complete',payoff_clear:true,setup_clear:true,confidence:'high'}}};
+ const rows=[market,ai];
+ for(let i=0;i<18;i++)rows.push({...fvideo,id:`Fresh${String(i).padStart(6,'0')}`,views:900000-i*10000,channelId:`c${i}`,screenGate:['movie'],audience:{status:'watch',validated:false}});
+ const out=C.shortlistCandidates(rows,{},C.buildTasteProfile([],{}));
+ assert.equal(out.length,10);
+ assert(out.some(v=>v.id==='Market00001'));
+ assert(out.some(v=>v.id==='AiScene0001'));
+});
+
+test('1.9.4 shortlist avoids low-tier candidates when enough viable options exist',()=>{
+ const good=[];for(let i=0;i<15;i++)good.push({...fvideo,id:`Good0${String(i).padStart(5,'0')}`,views:500000-i*1000,screenGate:['movie'],audience:{status:'watch',validated:false}});
+ const low={...fvideo,id:'LowScene001',views:9000000,screenGate:['movie'],audience:{status:'mega',validated:true},gemini:{status:'success',analysis:{screen_scene_decision:'no'}}};
+ const out=C.shortlistCandidates([low,...good],{},C.buildTasteProfile([],{}));
+ assert(!out.some(v=>v.id==='LowScene001'));
 });
 
 
