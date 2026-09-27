@@ -54,11 +54,11 @@ class GeminiEnrichTests(unittest.TestCase):
             video("Validated01", 20_000_000, True),
             video("Validated02", 10_000_000, True),
             video("Validated03", 8_000_000, True),
-            video("Explore00001", 4_000_000, False),
+            video("Explore0001", 4_000_000, False),
         ]
         chosen = M.choose_new_candidates(rows, M.empty_cache(), 3)
         self.assertEqual(len(chosen), 3)
-        self.assertIn("Explore00001", [x["id"] for x in chosen])
+        self.assertIn("Explore0001", [x["id"] for x in chosen])
         self.assertIn("Validated01", [x["id"] for x in chosen])
 
     def test_success_is_cached_and_reused_next_run(self):
