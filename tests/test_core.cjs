@@ -101,6 +101,11 @@ test('Gemini screen no only lowers ranking and never mutates manual state',()=>{
  assert.equal(C.ready(x,{}),true);
  assert.equal(C.mediaOf({}), 'unknown');
 });
+test('manual media confirmation overrides Gemini screen ranking',()=>{
+ const x={...fvideo,screenKind:'film',screenGate:['movie'],gemini:{status:'success',analysis:{screen_scene_decision:'no'}}};
+ assert.equal(C.candidateTier(x,{media:'screen'}),'priority');
+ assert.equal(C.candidateTier({...x,gemini:{status:'success',analysis:{screen_scene_decision:'yes'}}},{media:'not_screen'}),'low');
+});
 test('taste profile uses likes only and available context',()=>{
  const videos=[{...fvideo,id:'LikeVideo01',channelId:'chan-a',discoveryRoutes:['familiar']},{...fvideo,id:'BadVideo0001',channelId:'chan-b',discoveryRoutes:['open']}];
  let records={};records['LikeVideo01']={rating:'like'};records['BadVideo0001']={rating:'dislike'};
