@@ -103,11 +103,14 @@ def load_cache(path: Path) -> dict:
             and isinstance(row.get("deferredAt"), str)
             and isinstance(row.get("errorCode"), str)
         ):
-            out["videos"][vid] = {
+            item = {
                 "status": "deferred",
                 "deferredAt": row["deferredAt"],
                 "errorCode": row["errorCode"][:80],
             }
+            if isinstance(row.get("carryover"), dict) and row["carryover"].get("id") == vid:
+                item["carryover"] = row["carryover"]
+            out["videos"][vid] = item
     return out
 
 
@@ -187,7 +190,9 @@ def choose_new_candidates(videos: list[dict], cache: dict, limit: int, now: str 
         key=_sort_key,
     )
 
-    reserve_explore = 1 if limit >= 3 and watch else 0
+    # With a tiny free-tier budget (3), spend every call on audience-validated
+    # candidates first. From 5+ calls, reserve one slot for exploration.
+    reserve_explore = 1 if limit >= 5 and watch else 0
     selected = validated[: max(0, limit - reserve_explore)]
     selected_ids = {v["id"] for v in selected}
 
@@ -238,6 +243,27 @@ def enrich_data(
 
     stamp = now or iso_now()
     videos = data["videos"]
+
+    # Carry forward audience-validated videos that previously hit a Gemini
+    # service error. This bypasses collector duplicate history only for the
+    # bounded retry queue; it does not revive ordinary old candidates.
+    present = {v.get("id") for v in videos if isinstance(v, dict)}
+    carryovers = []
+    for vid, row in (cache.get("videos") or {}).items():
+        candidate = row.get("carryover") if isinstance(row, dict) else None
+        if (
+            vid not in present
+            and isinstance(candidate, dict)
+            and candidate.get("id") == vid
+            and bool((candidate.get("audience") or {}).get("validated"))
+        ):
+            copy = json.loads(json.dumps(candidate))
+            copy["geminiCarryover"] = True
+            carryovers.append(copy)
+    carryovers.sort(key=_sort_key)
+    if carryovers:
+        videos[:0] = carryovers[:MAX_NEW_CALLS]
+
     cache_hits = cooldown_hits = 0
 
     for video in videos:
@@ -290,6 +316,20 @@ def enrich_data(
 
         code = _error_code(report)
         row = {"status": "deferred", "deferredAt": stamp, "errorCode": code}
+        if bool((video.get("audience") or {}).get("validated")):
+            # Keep only the bounded public candidate snapshot needed to retry a
+            # strong video even after the collector's duplicate history moves on.
+            row["carryover"] = {
+                k: video[k] for k in (
+                    "language", "languageBasis", "audioLanguage", "declaredLanguage",
+                    "languageSource", "titleLanguage", "titleLanguageBasis",
+                    "screenKind", "screenReason", "metadataVersion", "id", "title",
+                    "channelTitle", "channelId", "views", "subscribers", "publishedAt",
+                    "fetchedAt", "durationSeconds", "audience", "thumbnail",
+                    "originalStatus", "source", "discoveryRoutes", "discoveryLabels",
+                    "sourceKinds", "screenGate", "shortsHint",
+                ) if k in video
+            }
         cache["videos"][vid] = row
         video["gemini"] = _site_deferred(row)
         deferred += 1
@@ -317,6 +357,7 @@ def enrich_data(
         "newCallLimit": limit,
         "cacheHits": cache_hits,
         "cooldownHits": cooldown_hits,
+        "carryoverCandidates": len(carryovers[:MAX_NEW_CALLS]),
         "selectedForNewAnalysis": len(selected),
         "attempts": attempts,
         "successes": successes,
