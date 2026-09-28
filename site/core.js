@@ -393,12 +393,22 @@
       seenIds.add(v.id);unique.push(v);
     }
     if(!unique.length)return [];
-    const requested=Number.isInteger(limit)?Math.min(15,Math.max(5,limit)):shortlistLimit(unique.length);
-    const target=Math.min(unique.length,requested);
-    if(unique.length<=target)return unique.slice();
-
     const viable=unique.filter(v=>candidateTier(v,records[v.id]||{})!=='low');
-    const pool=viable.length>=Math.min(5,target)?viable:unique;
+    const basePool=viable.length>=Math.min(5,unique.length)?viable:unique;
+    const tasteReady=Number(profile.usableLikes||0)+Number(profile.usableDislikes||0)>=5;
+    const evidenceIds=new Set();
+    for(const v of basePool){
+      if(audienceInfo(v).validated)evidenceIds.add(v.id);
+      if(v?.gemini?.status==='success'&&v.gemini.analysis?.screen_scene_decision==='yes')evidenceIds.add(v.id);
+      if(tasteReady&&['close','adjacent'].includes(preferenceClass(v,profile).bucket))evidenceIds.add(v.id);
+    }
+    // Do not pad the shortlist just to reach a fixed card count. Keep three
+    // exploration slots around the evidence-backed core, with a 5-item floor.
+    const adaptive=Math.max(5,Math.min(12,evidenceIds.size+3));
+    const requested=Number.isInteger(limit)?Math.min(15,Math.max(5,limit)):adaptive;
+    const target=Math.min(basePool.length,requested);
+    if(basePool.length<=target)return basePool.slice();
+    const pool=basePool;
     const selected=[],selectedIds=new Set();
     const addVideo=v=>{if(v&&!selectedIds.has(v.id)&&selected.length<target){selected.push(v);selectedIds.add(v.id);return true;}return false;};
     const pick=queue=>{while(queue.length){const v=queue.shift();if(addVideo(v))return true;}return false;};
@@ -411,16 +421,20 @@
     market.slice(0,marketQuota).forEach(addVideo);
 
     const remaining=()=>pool.filter(v=>!selectedIds.has(v.id));
-    const tasteReady=Number(profile.usableLikes||0)+Number(profile.usableDislikes||0)>=5;
     const close=balanceVideos(remaining().filter(v=>tasteReady&&preferenceClass(v,profile).bucket==='close').sort(byMarket));
     const adjacent=balanceVideos(remaining().filter(v=>tasteReady&&preferenceClass(v,profile).bucket==='adjacent').sort(byMarket));
     const ai=balanceVideos(remaining().filter(v=>v?.gemini?.status==='success'&&v.gemini.analysis?.screen_scene_decision==='yes').sort(_aiQuality));
     const marketRest=market.filter(v=>!selectedIds.has(v.id));
-    const explore=balanceVideos(remaining().sort((a,b)=>{
+    const rankedExplore=remaining().sort((a,b)=>{
       const ta=candidateTier(a,records[a.id]||{}),tb=candidateTier(b,records[b.id]||{});
       const tr={priority:0,review:1,low:2};
-      return (tr[ta]??2)-(tr[tb]??2)||_views(b)-_views(a)||(Date.parse(b.publishedAt)||0)-(Date.parse(a.publishedAt)||0);
-    }));
+      return (tr[ta]??2)-(tr[tb]??2)||audienceRank(a)-audienceRank(b)||_views(b)-_views(a)||(Date.parse(b.publishedAt)||0)-(Date.parse(a.publishedAt)||0);
+    });
+    // Balance languages only inside a strong-enough frontier. This preserves
+    // discovery diversity without promoting a 733-view outlier above much
+    // stronger watch candidates merely because its language is scarce.
+    const exploreFrontier=rankedExplore.slice(0,Math.max(target*2,8));
+    const explore=balanceVideos(exploreFrontier);
 
     const queues={close,ai,adjacent,explore,market:marketRest};
     const pattern=['close','ai','explore','adjacent','explore','market'];
