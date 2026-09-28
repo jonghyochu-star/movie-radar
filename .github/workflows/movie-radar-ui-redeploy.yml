@@ -1,0 +1,88 @@
+name: Movie Radar UI Redeploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/index.html'
+      - 'site/app.js'
+      - 'site/core.js'
+      - 'site/styles.css'
+      - '.github/workflows/movie-radar-ui-redeploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movie-radar-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read latest UI code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - name: Keep current deployed candidate data
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import json, os, re, time
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+
+          repository=os.environ.get("GITHUB_REPOSITORY","")
+          if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",repository):
+              raise SystemExit("repository name invalid")
+          owner,repo=repository.split("/",1)
+          url=f"https://{owner}.github.io/{repo}/data/videos.json?t={int(time.time())}"
+          req=Request(url,headers={"Accept":"application/json","User-Agent":"MovieRadar-UI-Redeploy/1.0"})
+          with urlopen(req,timeout=15) as response:
+              data=json.load(response)
+          if not isinstance(data,dict) or data.get("mode")!="live" or not isinstance(data.get("videos"),list):
+              raise SystemExit("current deployed live data unavailable; refusing to replace it")
+          target=Path("site/data/videos.json")
+          target.parent.mkdir(parents=True,exist_ok=True)
+          target.write_text(json.dumps(data,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+          print(f"현재 배포 후보 {len(data['videos'])}개를 유지합니다. YouTube/Gemini API는 호출하지 않습니다.")
+          PY
+
+      - name: Run offline regression tests
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python -m unittest discover -s tests -p 'test_*.py' -v
+          node --test tests/test_core.cjs
+
+      - name: Upload website files only
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+          retention-days: 1
+
+  deploy:
+    if: needs.build.result == 'success'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish Movie Radar UI
+        id: deployment
+        uses: actions/deploy-pages@v4
