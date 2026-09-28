@@ -225,14 +225,14 @@ test('1.9.4 shortlist is default but does not hard-filter watch candidates',()=>
  assert(C.matchesFilters(watch,{},C.defaultFilters()));
 });
 
-test('1.9.4 shortlist compresses a 40-item pool to 12 and keeps market winners',()=>{
+test('1.9.4 shortlist adapts to evidence instead of padding a 40-item pool',()=>{
  const rows=[];
  for(let i=0;i<3;i++)rows.push({...fvideo,id:`Market0000${i}`,views:9000000-i*1000000,channelId:`m${i}`,screenGate:['movie'],audience:{status:i===0?'mega':'proven',validated:true,mega:i===0,cumulativeProven:true}});
  for(let i=0;i<37;i++)rows.push({...fvideo,id:`Watch${String(i).padStart(6,'0')}`,views:1000000-i*10000,channelId:`w${i%8}`,screenGate:['movie'],audience:{status:'watch',validated:false}});
  const out=C.shortlistCandidates(rows,{},C.buildTasteProfile([],{}));
- assert.equal(out.length,12);
+ assert.equal(out.length,6);
  for(const id of ['Market00000','Market00001','Market00002'])assert(out.some(v=>v.id===id));
- assert.equal(new Set(out.map(v=>v.id)).size,12);
+ assert.equal(new Set(out.map(v=>v.id)).size,6);
 });
 
 test('1.9.4 shortlist includes Gemini-confirmed scene when it is not already a market winner',()=>{
@@ -241,7 +241,7 @@ test('1.9.4 shortlist includes Gemini-confirmed scene when it is not already a m
  const rows=[market,ai];
  for(let i=0;i<18;i++)rows.push({...fvideo,id:`Fresh${String(i).padStart(6,'0')}`,views:900000-i*10000,channelId:`c${i}`,screenGate:['movie'],audience:{status:'watch',validated:false}});
  const out=C.shortlistCandidates(rows,{},C.buildTasteProfile([],{}));
- assert.equal(out.length,10);
+ assert.equal(out.length,5);
  assert(out.some(v=>v.id==='Market00001'));
  assert(out.some(v=>v.id==='AiScene0001'));
 });
@@ -251,6 +251,18 @@ test('1.9.4 shortlist avoids low-tier candidates when enough viable options exis
  const low={...fvideo,id:'LowScene001',views:9000000,screenGate:['movie'],audience:{status:'mega',validated:true},gemini:{status:'success',analysis:{screen_scene_decision:'no'}}};
  const out=C.shortlistCandidates([low,...good],{},C.buildTasteProfile([],{}));
  assert(!out.some(v=>v.id==='LowScene001'));
+});
+
+test('1.9.4 exploration frontier does not promote extremely weak language outlier',()=>{
+ const rows=[
+  {...fvideo,id:'Market00001',views:6000000,language:'en',screenGate:['movie'],audience:{status:'proven',validated:true,cumulativeProven:true}},
+  {...fvideo,id:'AiScene0001',views:200000,language:'en',screenGate:['movie'],audience:{status:'watch',validated:false},gemini:{status:'success',analysis:{screen_scene_decision:'yes',story_completeness:'complete',payoff_clear:true,setup_clear:true,confidence:'high'}}},
+ ];
+ for(let i=0;i<12;i++)rows.push({...fvideo,id:`Strong${String(i).padStart(5,'0')}`,views:150000-i*8000,language:'en',channelId:`s${i}`,screenGate:['movie'],audience:{status:'watch',validated:false}});
+ rows.push({...fvideo,id:'WeakLang001',views:733,language:'zh',channelId:'zh',screenGate:['movie'],audience:{status:'watch',validated:false}});
+ const out=C.shortlistCandidates(rows,{},C.buildTasteProfile([],{}));
+ assert.equal(out.length,5);
+ assert(!out.some(v=>v.id==='WeakLang001'));
 });
 
 
